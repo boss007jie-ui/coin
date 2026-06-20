@@ -4,6 +4,7 @@
 server.out.log
 server.err.log
 .superpowers/
+.worktrees/
 .DS_Store
 node_modules/
 *.log
