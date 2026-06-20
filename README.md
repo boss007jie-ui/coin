@@ -16,11 +16,22 @@ Local asset dashboard and CEX altcoin radar prototype.
 npm start
 ```
 
+Open the local pages:
+
+- Asset dashboard: `http://localhost:5173/`
+- CEX altcoin radar: `http://localhost:5173/cex-radar.html`
+
 Run tests:
 
 ```bash
 npm test
 ```
+
+## CEX radar workflow
+
+The CEX radar page scans Binance USDT futures that do not have ordinary Binance Spot pairs, deep-inspects selected candidates, and shows attention/risk scores, short-term move expectations, and long/short observation suggestions.
+
+The observation pool supports automatic discovery and manual pinning. Pinned symbols are stored in browser `localStorage` for V1, so they stay local to your browser and are not committed to GitHub.
 
 ## Private data
 
