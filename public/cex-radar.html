@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10110f" />
+    <title>CEX 山寨币雷达</title>
+    <link rel="stylesheet" href="/styles.css?v=9" />
+  </head>
+  <body class="radar-page">
+    <div class="app-shell radar-shell">
+      <header class="topbar radar-topbar">
+        <div>
+          <p class="eyebrow">CEX Altcoin Radar</p>
+          <h1>CEX 山寨币雷达</h1>
+        </div>
+        <div class="topbar-actions">
+          <a class="icon-button" href="/" title="返回资产看板" aria-label="返回资产看板">↩</a>
+          <button class="icon-button" id="radarRefreshButton" title="刷新扫描" aria-label="刷新扫描">↻</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="radar-control-panel">
+          <div>
+            <span class="muted">最后扫描</span>
+            <strong id="radarUpdatedAt">尚未扫描</strong>
+          </div>
+          <label>
+            <span>深度检查</span>
+            <select id="radarDeepLimit">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <label>
+            <span>排序</span>
+            <select id="radarSort">
+              <option value="attention-desc">关注度</option>
+              <option value="risk-desc">风险</option>
+              <option value="change-desc">24h 涨跌</option>
+              <option value="volume-desc">合约成交额</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="radar-summary-grid" id="radarSummaryGrid" aria-label="雷达概览"></section>
+
+        <section class="radar-tabs" aria-label="雷达视图">
+          <button class="radar-tab active" data-tab="auto" type="button">自动发现</button>
+          <button class="radar-tab" data-tab="pinned" type="button">我的观察池</button>
+        </section>
+
+        <section class="radar-filter-bar" aria-label="雷达过滤">
+          <button class="radar-filter active" data-filter="all" type="button">全部</button>
+          <button class="radar-filter" data-filter="attention" type="button">高关注</button>
+          <button class="radar-filter" data-filter="risk" type="button">高风险</button>
+          <button class="radar-filter" data-filter="same-symbol" type="button">同名币风险</button>
+          <button class="radar-filter" data-filter="source-issue" type="button">数据源异常</button>
+          <button class="radar-filter" data-filter="pinned" type="button">已固定</button>
+        </section>
+
+        <section class="radar-workspace">
+          <article class="radar-table-panel">
+            <div class="radar-table-toolbar">
+              <div>
+                <h2>候选币</h2>
+                <p id="radarTableStatus">等待扫描</p>
+              </div>
+              <form id="radarPinForm" class="radar-pin-form">
+                <input id="radarManualSymbol" type="text" placeholder="手动添加，如 LABUSDT" />
+                <button class="secondary-button" type="submit">固定</button>
+              </form>
+            </div>
+            <div id="radarError" class="radar-error" hidden></div>
+            <div class="table-wrap radar-table-wrap">
+              <table class="radar-table">
+                <thead>
+                  <tr>
+                    <th>币种</th>
+                    <th>24h</th>
+                    <th>合约成交额</th>
+                    <th>关注</th>
+                    <th>风险</th>
+                    <th>短线预期</th>
+                    <th>动作</th>
+                    <th>阶段</th>
+                    <th>标签</th>
+                  </tr>
+                </thead>
+                <tbody id="radarTokenTable"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <aside class="radar-detail-panel" id="radarDetailPanel">
+            <div class="empty-state">选择一个币查看信号解释</div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="radarToast" role="status" aria-live="polite"></div>
+    <script src="/cex-radar.js?v=1"></script>
+  </body>
+</html>
