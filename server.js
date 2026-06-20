@@ -4,6 +4,7 @@ const fs = require("fs/promises");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
 const { createCexRadarScanner } = require("./lib/cex-radar-service");
+const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -880,6 +881,18 @@ async function fetchJsonWithFallback(url, timeoutMs, options = {}) {
     }
     return await response.json();
   } catch (nodeError) {
+    const env = { ...(await readLocalEnv()), ...process.env };
+    const proxyUrl = resolveProxyUrl(url, env);
+
+    if (proxyUrl && process.platform !== "win32") {
+      try {
+        const text = await fetchTextViaCurlProxy(url, timeoutMs + 8000, options.headers || {}, proxyUrl);
+        return JSON.parse(text);
+      } catch (curlError) {
+        throw new Error(`${nodeError.message}; curl proxy fallback failed: ${curlError.message}`);
+      }
+    }
+
     if (process.platform !== "win32") {
       throw nodeError;
     }
