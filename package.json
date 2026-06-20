@@ -1,0 +1,14 @@
+{
+  "name": "asset-portfolio-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local multi-platform financial asset dashboard",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

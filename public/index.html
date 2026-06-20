@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10110f" />
+    <title>多平台金融资产看板</title>
+    <link rel="stylesheet" href="/styles.css?v=8" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Asset Portfolio Hub</p>
+          <h1>多平台金融资产看板</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" id="radarButton" title="预警雷达" aria-label="预警雷达">🔔</button>
+          <button class="icon-button" id="refreshButton" title="刷新行情" aria-label="刷新行情">↻</button>
+          <button class="icon-button" id="addAssetButton" title="新增资产" aria-label="新增资产">＋</button>
+          <button class="icon-button" id="exportButton" title="导出 JSON" aria-label="导出 JSON">⇩</button>
+          <label class="icon-button file-button" title="导入 JSON" aria-label="导入 JSON">
+            ⇧
+            <input type="file" id="importInput" accept="application/json" />
+          </label>
+        </div>
+      </header>
+
+      <main>
+        <section class="hero-grid">
+          <article class="total-card">
+            <div class="card-heading">
+              <div>
+                <span class="muted">总资产估值</span>
+                <strong id="mainCurrencyLabel">CNY</strong>
+              </div>
+              <span class="status-pill" id="quoteStatus">本地快照</span>
+            </div>
+            <div class="total-number" id="totalValue">--</div>
+            <div class="metric-row">
+              <div>
+                <span>今日盈亏</span>
+                <strong id="dayPnl">--</strong>
+              </div>
+              <div>
+                <span>持有盈亏</span>
+                <strong id="totalPnl">--</strong>
+              </div>
+              <div>
+                <span>记录数量</span>
+                <strong id="assetCount">--</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="tool-card">
+            <div class="toolbar-title">
+              <strong>刷新与显示</strong>
+              <span id="lastUpdated">尚未刷新</span>
+            </div>
+            <div class="control-grid">
+              <label>
+                <span>基准货币</span>
+                <select id="baseCurrency">
+                  <option value="CNY">人民币 CNY</option>
+                  <option value="USD">美元 USD</option>
+                  <option value="HKD">港币 HKD</option>
+                </select>
+              </label>
+              <label>
+                <span>涨跌颜色</span>
+                <select id="colorMode">
+                  <option value="cn">红涨绿跌</option>
+                  <option value="global">绿涨红跌</option>
+                </select>
+              </label>
+              <label class="switch-row">
+                <input type="checkbox" id="autoRefresh" />
+                <span>每 60 秒自动刷新</span>
+              </label>
+              <button class="secondary-button" id="exportCsvButton">导出 CSV</button>
+            </div>
+            <div class="binance-account-card">
+              <div>
+                <strong>Binance 账户</strong>
+                <span id="binanceAccountStatus">检查中</span>
+              </div>
+              <button class="secondary-button" id="binanceAccountButton">查询余额</button>
+            </div>
+            <div class="exchange-buttons">
+              <button class="secondary-button" id="okxAccountButton">OKX 账户</button>
+              <button class="secondary-button" id="bybitAccountButton">Bybit 账户</button>
+              <button class="secondary-button" id="onchainButton">链上监控</button>
+              <button class="secondary-button" id="channelsButton">渠道状态</button>
+
+            </div>
+          </article>
+        </section>
+
+        <section class="insight-grid">
+          <article class="panel">
+            <div class="section-heading">
+              <h2>资产类别</h2>
+              <span id="categoryTotal">--</span>
+            </div>
+            <div class="allocation">
+              <div class="donut" id="categoryDonut" aria-label="资产类别占比"></div>
+              <div class="legend" id="categoryLegend"></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <h2>平台分布</h2>
+              <span id="platformTotal">--</span>
+            </div>
+            <div class="bar-list" id="platformBars"></div>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <h2>货币敞口</h2>
+              <span id="currencyTotal">--</span>
+            </div>
+            <div class="bar-list" id="currencyBars"></div>
+          </article>
+        </section>
+
+        <section class="holdings-section">
+          <div class="holdings-toolbar">
+            <div>
+              <h2>持仓明细</h2>
+              <p id="filterSummary">显示全部资产</p>
+            </div>
+            <div class="table-controls">
+              <input id="searchInput" type="search" placeholder="搜索平台、名称、代码" />
+              <select id="categoryFilter">
+                <option value="">全部类别</option>
+              </select>
+              <select id="platformFilter">
+                <option value="">全部平台</option>
+              </select>
+              <select id="sortSelect">
+                <option value="value-desc">按市值降序</option>
+                <option value="pnl-desc">按盈亏降序</option>
+                <option value="pnl-asc">按盈亏升序</option>
+                <option value="name-asc">按名称排序</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>资产</th>
+                  <th>平台 / 账户</th>
+                  <th>类别</th>
+                  <th>数量</th>
+                  <th>价格</th>
+                  <th>市值</th>
+                  <th>今日盈亏</th>
+                  <th>持有盈亏</th>
+                  <th>行情源</th>
+                </tr>
+              </thead>
+              <tbody id="assetTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="assetDialog" class="asset-dialog">
+      <form method="dialog" id="assetForm">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Holding</p>
+            <h2 id="dialogTitle">新增资产</h2>
+          </div>
+          <button type="button" class="icon-button ghost" id="closeDialogButton" aria-label="关闭">×</button>
+        </div>
+
+        <input type="hidden" id="assetId" />
+        <div class="form-grid">
+          <label>
+            <span>平台</span>
+            <input id="platformField" required />
+          </label>
+          <label>
+            <span>账户</span>
+            <input id="accountField" />
+          </label>
+          <label>
+            <span>类别</span>
+            <input id="categoryField" list="categoryList" required />
+          </label>
+          <label>
+            <span>名称</span>
+            <input id="nameField" required />
+          </label>
+          <label>
+            <span>代码</span>
+            <input id="symbolField" />
+          </label>
+          <label>
+            <span>货币</span>
+            <select id="currencyField">
+              <option value="CNY">CNY</option>
+              <option value="USD">USD</option>
+              <option value="HKD">HKD</option>
+            </select>
+          </label>
+          <label>
+            <span>数量</span>
+            <input id="quantityField" inputmode="decimal" />
+          </label>
+          <label>
+            <span>现价</span>
+            <input id="priceField" inputmode="decimal" />
+          </label>
+          <label>
+            <span>市值</span>
+            <input id="marketValueField" inputmode="decimal" />
+          </label>
+          <label>
+            <span>成本金额</span>
+            <input id="costBasisField" inputmode="decimal" />
+          </label>
+          <label>
+            <span>今日盈亏</span>
+            <input id="dayPnlField" inputmode="decimal" />
+          </label>
+          <label>
+            <span>持有盈亏</span>
+            <input id="pnlField" inputmode="decimal" />
+          </label>
+          <label>
+            <span>行情源</span>
+            <select id="quoteSourceField">
+              <option value="manual">手动</option>
+              <option value="yahoo">Yahoo 股票/ETF</option>
+              <option value="binance">Binance 现货</option>
+              <option value="coingecko">CoinGecko 加密货币</option>
+            </select>
+          </label>
+          <label>
+            <span>Yahoo 代码</span>
+            <input id="quoteSymbolField" placeholder="例：0700.HK / AAPL" />
+          </label>
+          <label>
+            <span>CoinGecko ID</span>
+            <input id="quoteIdField" placeholder="例：bitcoin" />
+          </label>
+          <label class="wide-field">
+            <span>备注</span>
+            <textarea id="notesField" rows="3"></textarea>
+          </label>
+        </div>
+
+        <datalist id="categoryList">
+          <option value="现金"></option>
+          <option value="理财"></option>
+          <option value="基金"></option>
+          <option value="黄金"></option>
+          <option value="加密货币"></option>
+          <option value="DeFi"></option>
+          <option value="A股/ETF"></option>
+          <option value="港股"></option>
+          <option value="美股"></option>
+          <option value="期权"></option>
+        </datalist>
+
+        <div class="dialog-actions">
+          <button type="button" class="danger-button" id="deleteAssetButton">删除</button>
+          <div>
+            <button type="button" class="secondary-button" id="resetSeedButton">恢复截图种子</button>
+            <button type="submit" class="primary-button">保存</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="binanceDialog" class="asset-dialog binance-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Binance Account</p>
+          <h2>币安账户余额</h2>
+        </div>
+        <button type="button" class="icon-button ghost" id="closeBinanceDialogButton" aria-label="关闭">×</button>
+      </div>
+
+      <div class="account-summary-grid">
+        <div>
+          <span>估算总额 USD</span>
+          <strong id="binanceAccountTotalUsd">--</strong>
+        </div>
+        <div>
+          <span>折合 CNY</span>
+          <strong id="binanceAccountTotalCny">--</strong>
+        </div>
+        <div>
+          <span>更新时间</span>
+          <strong id="binanceAccountUpdatedAt">--</strong>
+        </div>
+      </div>
+
+      <div class="mini-table-wrap">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>资产</th>
+              <th>可用</th>
+              <th>锁定</th>
+              <th>价格</th>
+              <th>估值</th>
+            </tr>
+          </thead>
+          <tbody id="binanceBalanceTable"></tbody>
+        </table>
+      </div>
+    </dialog>
+
+    <dialog id="okxDialog" class="asset-dialog binance-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">OKX Account</p>
+          <h2>OKX 账户余额</h2>
+        </div>
+        <button type="button" class="icon-button ghost" id="closeOkxDialogButton" aria-label="关闭">×</button>
+      </div>
+
+      <div class="account-summary-grid">
+        <div>
+          <span>估算总额 USD</span>
+          <strong id="okxAccountTotalUsd">--</strong>
+        </div>
+        <div>
+          <span>折合 CNY</span>
+          <strong id="okxAccountTotalCny">--</strong>
+        </div>
+        <div>
+          <span>更新时间</span>
+          <strong id="okxAccountUpdatedAt">--</strong>
+        </div>
+      </div>
+
+      <div class="mini-table-wrap">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>资产</th>
+              <th>可用</th>
+              <th>冻结</th>
+              <th>估值(USD)</th>
+            </tr>
+          </thead>
+          <tbody id="okxBalanceTable">
+            <tr><td colspan="4" class="neutral">点击上方按钮查询</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </dialog>
+
+    <dialog id="bybitDialog" class="asset-dialog binance-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Bybit Account</p>
+          <h2>Bybit 账户余额</h2>
+        </div>
+        <button type="button" class="icon-button ghost" id="closeBybitDialogButton" aria-label="关闭">×</button>
+      </div>
+
+      <div class="account-summary-grid">
+        <div>
+          <span>估算总额 USD</span>
+          <strong id="bybitAccountTotalUsd">--</strong>
+        </div>
+        <div>
+          <span>折合 CNY</span>
+          <strong id="bybitAccountTotalCny">--</strong>
+        </div>
+        <div>
+          <span>更新时间</span>
+          <strong id="bybitAccountUpdatedAt">--</strong>
+        </div>
+      </div>
+
+      <div class="mini-table-wrap">
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th>资产</th>
+              <th>可用</th>
+              <th>冻结</th>
+              <th>估值(USD)</th>
+            </tr>
+          </thead>
+          <tbody id="bybitBalanceTable">
+            <tr><td colspan="4" class="neutral">点击上方按钮查询</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </dialog>
+
+    <dialog id="onchainDialog" class="asset-dialog binance-dialog wide-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">On-chain Monitor</p>
+          <h2>链上资产监控</h2>
+        </div>
+        <button type="button" class="icon-button ghost" id="closeOnchainDialogButton" aria-label="关闭">×</button>
+      </div>
+
+      <div class="wallet-management">
+        <h4>钱包地址管理</h4>
+        <div class="wallet-form">
+          <select id="walletChainSelect">
+            <option value="ethereum">Ethereum</option>
+            <option value="bsc">BNB Chain</option>
+            <option value="polygon">Polygon</option>
+            <option value="arbitrum">Arbitrum</option>
+            <option value="solana">Solana</option>
+            <option value="bitcoin">Bitcoin</option>
+          </select>
+          <input id="walletAddressInput" type="text" placeholder="钱包地址" />
+          <input id="walletLabelInput" type="text" placeholder="备注名称" />
+          <button class="secondary-button" id="addWalletButton">添加</button>
+        </div>
+        <div id="walletList"></div>
+      </div>
+
+      <hr class="dialog-divider" />
+
+      <div class="onchain-results">
+        <div class="dialog-actions">
+          <button class="secondary-button" id="queryOnchainButton">查询链上余额</button>
+          <span id="onchainUpdatedAt" class="muted"></span>
+        </div>
+        <div id="onchainBalanceResults"></div>
+      </div>
+    </dialog>
+
+    <dialog id="channelsDialog" class="asset-dialog binance-dialog wide-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Data Channels</p>
+          <h2>数据渠道状态</h2>
+        </div>
+        <button type="button" class="icon-button ghost" id="closeChannelsDialogButton" aria-label="关闭">×</button>
+      </div>
+
+      <div id="channelsList"></div>
+    </dialog>
+
+    <dialog id="radarDialog" class="asset-dialog binance-dialog wide-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">Early Warning Radar</p>
+          <h2>预警雷达 (LAB/BEAT/RAVE 模式)</h2>
+        </div>
+        <button type="button" class="icon-button ghost" id="closeRadarDialogButton" aria-label="关闭">×</button>
+      </div>
+
+      <div class="account-summary-grid radar-summary-grid">
+        <div>
+          <span>高危预警 (🔴)</span>
+          <strong id="radarHighRiskCount" class="negative">0</strong>
+        </div>
+        <div>
+          <span>中危预警 (🟡)</span>
+          <strong id="radarMidRiskCount" class="positive">0</strong>
+        </div>
+        <div>
+          <span>上次扫描时间</span>
+          <strong id="radarLastScanTime" style="font-size: 15px; margin-top: 14px;">尚未扫描</strong>
+        </div>
+      </div>
+      
+      <div class="dialog-actions" style="margin-top: -6px; margin-bottom: 6px;">
+        <button class="primary-button" id="triggerScanButton">立即扫描</button>
+        <span id="radarScanStatus" class="neutral" style="align-self: center; font-size: 13px;"></span>
+      </div>
+
+      <hr class="dialog-divider" />
+
+      <div class="radar-results-container" style="max-height: 380px; overflow-y: auto; margin: 10px 0;">
+        <div id="radarResultsList">
+          <div class="neutral" style="text-align: center; padding: 20px;">点击“立即扫描”开始检测</div>
+        </div>
+      </div>
+
+      <hr class="dialog-divider" />
+
+      <div class="radar-config-section">
+        <details style="border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 10px 14px;">
+          <summary style="cursor: pointer; font-weight: bold; font-size: 14px; user-select: none;">⚙️ 雷达预警及监控配置</summary>
+          <div style="display: grid; gap: 14px; margin-top: 14px;">
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+              <label class="switch-row" style="display: flex; gap: 8px; align-items: center;">
+                <input type="checkbox" id="radarNotificationsEnabled" checked />
+                <span>开启浏览器桌面通知</span>
+              </label>
+              <label class="switch-row" style="display: flex; gap: 8px; align-items: center;">
+                <input type="checkbox" id="radarSoundEnabled" />
+                <span>开启高危声音警报 (Beep)</span>
+              </label>
+              <label style="display: flex; gap: 8px; align-items: center;">
+                <span>扫描频率:</span>
+                <select id="radarScanInterval" style="background: #11130f; border: 1px solid var(--line); color: var(--text); padding: 4px 6px; border-radius: 4px;">
+                  <option value="1">1 分钟</option>
+                  <option value="3">3 分钟</option>
+                  <option value="5" selected>5 分钟</option>
+                  <option value="10">10 分钟</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="watchlist-section" style="border-top: 1px solid var(--line); padding-top: 12px; margin-top: 6px;">
+              <h4 style="margin: 0 0 10px; font-size: 14px;">自定义监控代币合约</h4>
+              <div class="wallet-form" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <select id="radarTokenChain" style="background: #11130f; border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: var(--radius);">
+                  <option value="ethereum">Ethereum</option>
+                  <option value="bsc">BNB Chain</option>
+                  <option value="polygon">Polygon</option>
+                  <option value="arbitrum">Arbitrum</option>
+                  <option value="solana">Solana</option>
+                </select>
+                <input id="radarTokenAddress" type="text" placeholder="代币合约地址" style="flex: 1; min-width: 200px; background: #11130f; border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: var(--radius);" />
+                <input id="radarTokenLabel" type="text" placeholder="备注名称 (例: RAVE)" style="background: #11130f; border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: var(--radius); width: 140px;" />
+                <button type="button" class="secondary-button" id="addRadarTokenButton" style="min-height: 40px; padding: 0 16px;">添加监控</button>
+              </div>
+              <div id="radarWatchlist" style="margin-top: 12px; display: grid; gap: 8px;"></div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js?v=7" defer></script>
+  </body>
+</html>
