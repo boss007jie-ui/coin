@@ -2,7 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  assembleCexToken,
   buildSpotSymbolSet,
+  deriveCexAction,
+  deriveCexExpectation,
   filterNoSpotFutures,
   normalizeFuturesTicker,
   toFiniteNumber,
@@ -519,4 +522,116 @@ test("assembled score and phase mirror direct scoring and classification", () =>
   assert.equal(token.attentionScore, scores.attentionScore);
   assert.equal(token.riskScore, scores.riskScore);
   assert.equal(token.phase, phase);
+});
+
+test("derives bullish short-term expectation and watch-long action for controlled acceleration", () => {
+  const candidate = {
+    symbol: "UPUSDT",
+    baseAsset: "UP",
+    lastPrice: 10,
+    priceChange24h: 18,
+    high24h: 10.2,
+    low24h: 8.2,
+    quoteVolume24h: 140_000_000,
+    hasBinanceSpot: false,
+    indexConstituents: [
+      { exchange: "gateio", symbol: "UP_USDT", price: 10.01, weight: 0.4 },
+      { exchange: "binance_future", symbol: "UPUSDT", price: 10, weight: 0.6 }
+    ],
+    anchorDispersionPct: 0.1,
+    futuresToAnchorVolumeRatio: 9,
+    markIndexPremiumPct: 0.02,
+    fundingRate: 0.00005,
+    adlRisk: "LOW",
+    sameSymbolMismatches: []
+  };
+
+  const token = assembleCexToken(candidate);
+
+  assert.equal(token.shortTermBias, "bullish");
+  assert.deepEqual(token.expectedMovePctRange, {
+    lower: 8,
+    upper: 18,
+    label: "+8% ~ +18%"
+  });
+  assert.equal(token.expectationConfidence, "high");
+  assert.ok(token.expectationReasons.includes("高关注且风险未失控"));
+  assert.equal(token.actionBias, "watch-long");
+  assert.equal(token.actionSetup, "breakout-continuation");
+  assert.ok(token.actionReasons.includes("外部锚同步"));
+});
+
+test("derives bearish expectation and watch-short action for crowded pullback", () => {
+  const candidate = {
+    symbol: "FADEUSDT",
+    baseAsset: "FADE",
+    lastPrice: 7.4,
+    priceChange24h: 4,
+    high24h: 10,
+    low24h: 6.9,
+    quoteVolume24h: 180_000_000,
+    hasBinanceSpot: false,
+    indexConstituents: [
+      { exchange: "gateio", symbol: "FADE_USDT", price: 7.35, weight: 0.5 },
+      { exchange: "binance_future", symbol: "FADEUSDT", price: 7.4, weight: 0.5 }
+    ],
+    anchorDispersionPct: 0.7,
+    futuresToAnchorVolumeRatio: 18,
+    markIndexPremiumPct: 0.5,
+    fundingRate: 0.0012,
+    adlRisk: "HIGH",
+    sameSymbolMismatches: []
+  };
+
+  const token = assembleCexToken(candidate);
+
+  assert.equal(token.shortTermBias, "bearish");
+  assert.deepEqual(token.expectedMovePctRange, {
+    lower: -25,
+    upper: -10,
+    label: "-25% ~ -10%"
+  });
+  assert.equal(token.actionBias, "watch-short");
+  assert.equal(token.actionSetup, "blowoff-fade");
+  assert.ok(token.expectationReasons.includes("冲高回落风险"));
+  assert.ok(token.actionReasons.includes("ADL拥挤"));
+});
+
+test("downgrades same-symbol risk to avoid with low confidence", () => {
+  const candidate = {
+    symbol: "RISKUSDT",
+    baseAsset: "RISK",
+    lastPrice: 1,
+    priceChange24h: 12,
+    high24h: 1.2,
+    low24h: 0.8,
+    quoteVolume24h: 80_000_000,
+    hasBinanceSpot: false,
+    indexConstituents: [
+      { exchange: "gateio", symbol: "RISK_USDT", price: 1.45, weight: 0.4 },
+      { exchange: "binance_future", symbol: "RISKUSDT", price: 1, weight: 0.6 }
+    ],
+    anchorDispersionPct: 45,
+    futuresToAnchorVolumeRatio: null,
+    markIndexPremiumPct: 0.1,
+    fundingRate: 0.00002,
+    adlRisk: "MIDDLE",
+    sameSymbolMismatches: [
+      { exchange: "gateio", symbol: "RISK_USDT", priceDiffPct: 45 }
+    ]
+  };
+
+  const token = assembleCexToken(candidate);
+
+  assert.equal(token.shortTermBias, "volatile-unclear");
+  assert.deepEqual(token.expectedMovePctRange, {
+    lower: -20,
+    upper: 20,
+    label: "-20% ~ +20%"
+  });
+  assert.equal(token.expectationConfidence, "low");
+  assert.ok(token.expectationReasons.includes("同名币或锚价风险"));
+  assert.equal(token.actionBias, "avoid");
+  assert.equal(token.actionSetup, "same-symbol-avoid");
+  assert.equal(token.invalidLevel, "锚价无法验证，暂不设失效位");
 });
