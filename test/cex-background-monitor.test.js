@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  buildCexFeedbackDigest,
   buildCexAlertMessages,
   createCexBackgroundMonitor
 } = require("../lib/cex-background-monitor");
@@ -131,6 +132,111 @@ test("background monitor keeps scan successful when Telegram alert fails", async
   assert.equal(result.alertCount, 0);
   assert.equal(saved.length, 1);
   assert.equal(monitor.getStatus().lastError, null);
+});
+
+test("buildCexFeedbackDigest summarizes unnotified prediction reviews once per local day", () => {
+  const digest = buildCexFeedbackDigest([
+    {
+      id: "LABUSDT-2026-06-21T08:00:00.000Z",
+      symbol: "LABUSDT",
+      actionBias: "watch-long",
+      shortTermBias: "bullish",
+      expectedMovePctRange: { lower: 8, upper: 18, label: "+8% ~ +18%" },
+      review1d: {
+        reviewedAt: "2026-06-22T08:00:00.000Z",
+        movePct: 12,
+        outcomeLabel: "hit"
+      }
+    },
+    {
+      id: "RISKUSDT-2026-06-19T08:00:00.000Z",
+      symbol: "RISKUSDT",
+      actionBias: "watch-short",
+      shortTermBias: "bearish",
+      expectedMovePctRange: { lower: -18, upper: -8, label: "-18% ~ -8%" },
+      review3d: {
+        reviewedAt: "2026-06-22T08:00:00.000Z",
+        movePct: 7,
+        outcomeLabel: "miss"
+      }
+    }
+  ], {
+    now: new Date("2026-06-22T10:00:00.000Z")
+  });
+
+  assert.equal(digest.items.length, 2);
+  assert.ok(digest.text.includes("[CEX 雷达] 预测反馈日报"));
+  assert.ok(digest.text.includes("1天: 1 条"));
+  assert.ok(digest.text.includes("3天: 1 条"));
+  assert.ok(digest.text.includes("LABUSDT"));
+  assert.ok(digest.text.includes("RISKUSDT"));
+
+  const duplicate = buildCexFeedbackDigest([
+    {
+      id: "LABUSDT-2026-06-21T08:00:00.000Z",
+      symbol: "LABUSDT",
+      review1d: {
+        reviewedAt: "2026-06-22T08:00:00.000Z",
+        movePct: 12,
+        outcomeLabel: "hit",
+        feedbackDigestSentAt: "2026-06-22T09:00:00.000Z"
+      }
+    }
+  ], {
+    now: new Date("2026-06-22T10:00:00.000Z")
+  });
+  assert.equal(duplicate, null);
+});
+
+test("background monitor sends prediction feedback digest and marks reviews as notified", async () => {
+  const sent = [];
+  let journal = [{
+    id: "LABUSDT-2026-06-21T08:00:00.000Z",
+    symbol: "LABUSDT",
+    observedAt: "2026-06-21T08:00:00.000Z",
+    lastSeenAt: "2026-06-21T08:00:00.000Z",
+    entryPrice: 10,
+    latestPrice: 10,
+    actionBias: "watch-long",
+    shortTermBias: "bullish",
+    expectedMovePctRange: { lower: 8, upper: 18, label: "+8% ~ +18%" },
+    review1d: null,
+    review3d: null
+  }];
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-22T10:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 1, deepInspected: 1, attentionCount: 0, riskCount: 0 },
+      tokens: [token({ lastPrice: 11.2, attentionScore: 10, riskScore: 10, actionBias: "watch-only", shortTermBias: "volatile-unclear" })],
+      errors: []
+    }),
+    loadJournal: async () => journal,
+    saveJournal: async (entries) => {
+      journal = entries;
+    },
+    notifier: {
+      enabled: true,
+      sendMessage: async (message) => {
+        sent.push(message);
+        return { ok: true };
+      }
+    },
+    now: () => new Date("2026-06-22T10:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  const first = await monitor.runOnce();
+  const second = await monitor.runOnce();
+
+  assert.equal(first.ok, true);
+  assert.equal(first.feedbackDigestCount, 1);
+  assert.equal(second.feedbackDigestCount, 0);
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].includes("预测反馈日报"));
+  assert.equal(journal[0].review1d.outcomeLabel, "hit");
+  assert.ok(journal[0].review1d.feedbackDigestSentAt);
+  assert.equal(monitor.getStatus().lastFeedbackDigestCount, 0);
 });
 
 test("background monitor records scan errors and sends one error alert", async () => {
