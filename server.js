@@ -4,6 +4,14 @@ const fs = require("fs/promises");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
 const { createCexRadarScanner } = require("./lib/cex-radar-service");
+const {
+  reviewJournalEntries,
+  upsertJournalEntries
+} = require("./lib/cex-signal-journal");
+const {
+  loadCexSignalJournal,
+  saveCexSignalJournal
+} = require("./lib/cex-signal-journal-store");
 const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
 
 const ROOT_DIR = __dirname;
@@ -27,6 +35,7 @@ let binanceTickerCache = null;
 let onchainBalanceCache = null;
 const ONCHAIN_CACHE_TTL_MS = 60000;
 const WALLETS_FILE = path.join(ROOT_DIR, "data", "wallets.json");
+const CEX_SIGNAL_JOURNAL_FILE = process.env.CEX_SIGNAL_JOURNAL_FILE || path.join(ROOT_DIR, "data", "cex-signal-journal.json");
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -135,6 +144,44 @@ const server = http.createServer(async (req, res) => {
       const deepInspectLimit = requestUrl.searchParams.get("deepInspectLimit");
       const results = await fetchCexRadarScan(force, deepInspectLimit);
       return sendJson(res, results);
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/radar/cex-journal") {
+      const symbol = String(requestUrl.searchParams.get("symbol") || "").trim().toUpperCase();
+      const entries = await loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE);
+      const filtered = symbol ? entries.filter((entry) => String(entry.symbol || "").toUpperCase() === symbol) : entries;
+      filtered.sort((a, b) => (Date.parse(b.observedAt || "") || 0) - (Date.parse(a.observedAt || "") || 0));
+      return sendJson(res, { entries: filtered });
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/radar/cex-journal/capture") {
+      const body = await readJson(req);
+      const tokens = Array.isArray(body.tokens)
+        ? body.tokens
+        : (await fetchCexRadarScan(false, body.deepInspectLimit)).tokens;
+      const entries = await loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE);
+      const result = upsertJournalEntries(entries, tokens, {
+        now: new Date(),
+        pinnedSymbols: Array.isArray(body.pinnedSymbols) ? body.pinnedSymbols : []
+      });
+      await saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, result.entries);
+      return sendJson(res, { ok: true, ...result });
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/radar/cex-journal/review") {
+      const body = await readJson(req);
+      const tokens = Array.isArray(body.tokens)
+        ? body.tokens
+        : (await fetchCexRadarScan(false, body.deepInspectLimit)).tokens;
+      const priceBySymbol = new Map(
+        tokens
+          .map((token) => [String(token.symbol || "").toUpperCase(), Number(token.lastPrice)])
+          .filter(([, price]) => Number.isFinite(price))
+      );
+      const entries = await loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE);
+      const result = reviewJournalEntries(entries, priceBySymbol, new Date());
+      await saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, result.entries);
+      return sendJson(res, { ok: true, ...result });
     }
 
     if (req.method === "GET" && requestUrl.pathname === "/api/radar/config") {
