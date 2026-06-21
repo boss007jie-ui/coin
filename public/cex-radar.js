@@ -1,8 +1,12 @@
 const RADAR_PIN_STORAGE_KEY = "cex-radar-pinned-symbols-v1";
+const RADAR_AUTO_SCAN_STORAGE_KEY = "cex-radar-auto-scan-enabled-v1";
+const RADAR_AUTO_SCAN_INTERVAL_STORAGE_KEY = "cex-radar-auto-scan-interval-v1";
 const AUTO_ATTENTION_THRESHOLD = 60;
 const AUTO_RISK_THRESHOLD = 60;
 const HIGH_ATTENTION_THRESHOLD = 70;
 const HIGH_RISK_THRESHOLD = 50;
+const DEFAULT_AUTO_SCAN_INTERVAL_MINUTES = 5;
+const VALID_AUTO_SCAN_INTERVALS = [1, 3, 5, 15];
 
 const radarState = {
   tokens: [],
@@ -13,6 +17,9 @@ const radarState = {
   sort: "attention-desc",
   deepLimit: 20,
   pinnedSymbols: [],
+  autoScanEnabled: true,
+  autoScanIntervalMinutes: DEFAULT_AUTO_SCAN_INTERVAL_MINUTES,
+  autoScanNextRunAt: null,
   journalEntries: [],
   journalError: null,
   loading: false,
@@ -21,12 +28,15 @@ const radarState = {
 };
 
 const radarEls = {};
+let autoScanTimer = null;
 
 document.addEventListener("DOMContentLoaded", initCexRadarPage);
+window.addEventListener("beforeunload", clearAutoScanTimer);
 
 function initCexRadarPage() {
   cacheRadarElements();
   loadPinnedSymbols();
+  loadAutoScanSettings();
   loadCexJournal();
   bindRadarEvents();
   renderRadarPage();
@@ -37,6 +47,9 @@ function cacheRadarElements() {
   [
     "radarRefreshButton",
     "radarUpdatedAt",
+    "radarAutoScanToggle",
+    "radarAutoScanInterval",
+    "radarAutoScanStatus",
     "radarDeepLimit",
     "radarSort",
     "radarSummaryGrid",
@@ -56,6 +69,20 @@ function cacheRadarElements() {
 
 function bindRadarEvents() {
   radarEls.radarRefreshButton?.addEventListener("click", () => fetchCexRadarScan(true));
+  radarEls.radarAutoScanToggle?.addEventListener("change", () => {
+    radarState.autoScanEnabled = Boolean(radarEls.radarAutoScanToggle.checked);
+    saveAutoScanSettings();
+    scheduleAutoScan();
+    renderRadarPage();
+    showRadarToast(radarState.autoScanEnabled ? "自动扫描已开启" : "自动扫描已暂停");
+  });
+  radarEls.radarAutoScanInterval?.addEventListener("change", () => {
+    radarState.autoScanIntervalMinutes = normalizeAutoScanInterval(radarEls.radarAutoScanInterval.value);
+    saveAutoScanSettings();
+    scheduleAutoScan();
+    renderRadarPage();
+    showRadarToast(`自动扫描间隔：${radarState.autoScanIntervalMinutes} 分钟`);
+  });
   radarEls.radarDeepLimit?.addEventListener("change", () => {
     radarState.deepLimit = Number(radarEls.radarDeepLimit.value || 20);
     fetchCexRadarScan(true);
@@ -122,6 +149,11 @@ async function fetchCexRadarScan(force) {
     radarState.updatedAt = null;
   } finally {
     radarState.loading = false;
+    if (radarState.autoScanEnabled) {
+      scheduleAutoScan();
+    } else {
+      clearAutoScanTimer();
+    }
     renderRadarPage();
   }
 }
@@ -211,6 +243,51 @@ function savePinnedSymbols() {
   localStorage.setItem(RADAR_PIN_STORAGE_KEY, JSON.stringify(radarState.pinnedSymbols));
 }
 
+function loadAutoScanSettings() {
+  const enabledValue = localStorage.getItem(RADAR_AUTO_SCAN_STORAGE_KEY);
+  radarState.autoScanEnabled = enabledValue === null ? true : enabledValue === "true";
+  radarState.autoScanIntervalMinutes = normalizeAutoScanInterval(
+    localStorage.getItem(RADAR_AUTO_SCAN_INTERVAL_STORAGE_KEY) || DEFAULT_AUTO_SCAN_INTERVAL_MINUTES
+  );
+}
+
+function saveAutoScanSettings() {
+  localStorage.setItem(RADAR_AUTO_SCAN_STORAGE_KEY, String(radarState.autoScanEnabled));
+  localStorage.setItem(RADAR_AUTO_SCAN_INTERVAL_STORAGE_KEY, String(radarState.autoScanIntervalMinutes));
+}
+
+function normalizeAutoScanInterval(value) {
+  const minutes = Number(value);
+  return VALID_AUTO_SCAN_INTERVALS.includes(minutes) ? minutes : DEFAULT_AUTO_SCAN_INTERVAL_MINUTES;
+}
+
+function scheduleAutoScan() {
+  clearAutoScanTimer();
+  if (!radarState.autoScanEnabled) {
+    radarState.autoScanNextRunAt = null;
+    return;
+  }
+
+  const intervalMs = radarState.autoScanIntervalMinutes * 60 * 1000;
+  radarState.autoScanNextRunAt = new Date(Date.now() + intervalMs).toISOString();
+  autoScanTimer = setTimeout(() => {
+    if (!radarState.autoScanEnabled) return;
+    if (radarState.loading) {
+      scheduleAutoScan();
+      renderRadarPage();
+      return;
+    }
+    fetchCexRadarScan(true);
+  }, intervalMs);
+}
+
+function clearAutoScanTimer() {
+  if (autoScanTimer) {
+    clearTimeout(autoScanTimer);
+    autoScanTimer = null;
+  }
+}
+
 function normalizeSymbolInput(value) {
   const upper = String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!upper) return "";
@@ -262,8 +339,27 @@ function renderRadarControls() {
       ? new Date(radarState.updatedAt).toLocaleString("zh-CN")
       : "尚未扫描";
   }
+  if (radarEls.radarAutoScanToggle) {
+    radarEls.radarAutoScanToggle.checked = radarState.autoScanEnabled;
+  }
+  if (radarEls.radarAutoScanInterval) {
+    radarEls.radarAutoScanInterval.value = String(radarState.autoScanIntervalMinutes);
+    radarEls.radarAutoScanInterval.disabled = !radarState.autoScanEnabled;
+  }
+  if (radarEls.radarAutoScanStatus) {
+    radarEls.radarAutoScanStatus.textContent = autoScanStatusText();
+  }
   radarEls.tabs?.forEach((button) => button.classList.toggle("active", button.dataset.tab === radarState.tab));
   radarEls.filters?.forEach((button) => button.classList.toggle("active", button.dataset.filter === radarState.filter));
+}
+
+function autoScanStatusText() {
+  if (!radarState.autoScanEnabled) return "已暂停";
+  if (radarState.loading) return "本轮扫描中";
+  if (radarState.autoScanNextRunAt) {
+    return `下次 ${new Date(radarState.autoScanNextRunAt).toLocaleTimeString("zh-CN")}`;
+  }
+  return `每 ${radarState.autoScanIntervalMinutes} 分钟`;
 }
 
 function renderRadarSummary() {

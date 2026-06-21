@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#10110f" />
     <title>CEX 山寨币雷达</title>
-    <link rel="stylesheet" href="/styles.css?v=9" />
+    <link rel="stylesheet" href="/styles.css?v=10" />
   </head>
   <body class="radar-page">
     <div class="app-shell radar-shell">
@@ -26,6 +26,22 @@
             <span class="muted">最后扫描</span>
             <strong id="radarUpdatedAt">尚未扫描</strong>
           </div>
+          <div class="radar-auto-control">
+            <label class="radar-toggle-row">
+              <input id="radarAutoScanToggle" type="checkbox" checked />
+              <span>自动扫描</span>
+            </label>
+            <small id="radarAutoScanStatus">每 5 分钟</small>
+          </div>
+          <label>
+            <span>扫描间隔</span>
+            <select id="radarAutoScanInterval">
+              <option value="1">1 分钟</option>
+              <option value="3">3 分钟</option>
+              <option value="5" selected>5 分钟</option>
+              <option value="15">15 分钟</option>
+            </select>
+          </label>
           <label>
             <span>深度检查</span>
             <select id="radarDeepLimit">
@@ -102,6 +118,6 @@
     </div>
 
     <div class="toast" id="radarToast" role="status" aria-live="polite"></div>
-    <script src="/cex-radar.js?v=1"></script>
+    <script src="/cex-radar.js?v=2"></script>
   </body>
 </html>

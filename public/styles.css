@@ -1221,7 +1221,7 @@ td:nth-child(8) {
 
 .radar-control-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px 220px;
+  grid-template-columns: minmax(0, 1fr) 170px 150px 180px 220px;
   gap: 12px;
   align-items: end;
   border: 1px solid var(--line);
@@ -1233,6 +1233,31 @@ td:nth-child(8) {
 .radar-control-panel > div {
   display: grid;
   gap: 8px;
+}
+
+.radar-auto-control {
+  min-height: 42px;
+  align-content: center;
+}
+
+.radar-toggle-row {
+  display: inline-flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: start;
+  gap: 8px;
+}
+
+.radar-toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.radar-auto-control small {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
 .radar-control-panel label,
