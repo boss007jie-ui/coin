@@ -1,5 +1,6 @@
 const http = require("http");
 const path = require("path");
+const fsSync = require("fs");
 const fs = require("fs/promises");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
@@ -17,6 +18,7 @@ const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fet
 const { createTelegramNotifier } = require("./lib/telegram-notifier");
 
 const ROOT_DIR = __dirname;
+loadLocalEnvIntoProcess(ROOT_DIR);
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const PORT = Number(process.env.PORT || 5173);
 const CACHE_TTL_MS = 30000;
@@ -438,6 +440,19 @@ async function readLocalEnv() {
     return parseDotEnv(text);
   } catch {
     return {};
+  }
+}
+
+function loadLocalEnvIntoProcess(rootDir) {
+  try {
+    const values = parseDotEnv(fsSync.readFileSync(path.join(rootDir, ".env"), "utf8"));
+    for (const [key, value] of Object.entries(values)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Missing local .env is expected for tests and clean checkouts.
   }
 }
 
