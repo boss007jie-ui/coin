@@ -33,6 +33,14 @@ The CEX radar page scans Binance USDT futures that do not have ordinary Binance 
 
 The observation pool supports automatic discovery and manual pinning. Pinned symbols are stored in browser `localStorage` for V1, so they stay local to your browser and are not committed to GitHub.
 
+## Signal review journal
+
+The CEX radar keeps a local review journal at `data/cex-signal-journal.json`.
+
+The journal records high-attention, high-risk, long-watch, short-watch, and pinned observed tokens. It reviews outcomes after 1 day and 3 days when a later scan has a current price.
+
+This data is local-only and ignored by Git.
+
 If the CEX radar shows `Binance futures ticker scan failed`, the local network is probably blocking `https://fapi.binance.com`. Start your local proxy and set these private `.env` values:
 
 ```bash
