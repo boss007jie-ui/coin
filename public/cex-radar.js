@@ -13,6 +13,8 @@ const radarState = {
   sort: "attention-desc",
   deepLimit: 20,
   pinnedSymbols: [],
+  journalEntries: [],
+  journalError: null,
   loading: false,
   lastError: null,
   updatedAt: null
@@ -25,6 +27,7 @@ document.addEventListener("DOMContentLoaded", initCexRadarPage);
 function initCexRadarPage() {
   cacheRadarElements();
   loadPinnedSymbols();
+  loadCexJournal();
   bindRadarEvents();
   renderRadarPage();
   fetchCexRadarScan(false);
@@ -110,6 +113,7 @@ async function fetchCexRadarScan(force) {
     radarState.tokens = Array.isArray(payload.tokens) ? payload.tokens.map(normalizeToken) : [];
     radarState.errors = Array.isArray(payload.errors) ? payload.errors : [];
     radarState.updatedAt = payload.updatedAt || new Date().toISOString();
+    await syncCexJournal(radarState.tokens);
     radarState.selectedSymbol = chooseSelectedSymbol(radarState.selectedSymbol);
   } catch (error) {
     radarState.lastError = error;
@@ -131,8 +135,65 @@ function normalizeToken(token) {
     warnings: Array.isArray(token.warnings) ? token.warnings : [],
     expectationReasons: Array.isArray(token.expectationReasons) ? token.expectationReasons : [],
     actionReasons: Array.isArray(token.actionReasons) ? token.actionReasons : [],
-    indexConstituents: Array.isArray(token.indexConstituents) ? token.indexConstituents : []
+    indexConstituents: Array.isArray(token.indexConstituents) ? token.indexConstituents : [],
+    signalReview: normalizeSignalReview(token.signalReview)
   };
+}
+
+function normalizeSignalReview(review) {
+  return {
+    bullCase: Array.isArray(review?.bullCase) ? review.bullCase : [],
+    bearCase: Array.isArray(review?.bearCase) ? review.bearCase : [],
+    riskGate: Array.isArray(review?.riskGate) ? review.riskGate : [],
+    decisionSummary: review?.decisionSummary || "",
+    decisionConfidence: review?.decisionConfidence || "",
+    reviewLabel: review?.reviewLabel || ""
+  };
+}
+
+async function loadCexJournal() {
+  try {
+    const response = await fetch("/api/radar/cex-journal", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    radarState.journalEntries = Array.isArray(payload.entries) ? payload.entries : [];
+    radarState.journalError = null;
+    renderRadarPage();
+  } catch (error) {
+    radarState.journalEntries = [];
+    radarState.journalError = error.message || "复盘日志读取失败";
+  }
+}
+
+async function syncCexJournal(tokens) {
+  radarState.journalError = null;
+  try {
+    const captureResponse = await fetch("/api/radar/cex-journal/capture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tokens,
+        pinnedSymbols: radarState.pinnedSymbols
+      })
+    });
+    if (!captureResponse.ok) {
+      throw new Error(`HTTP ${captureResponse.status}`);
+    }
+    const reviewResponse = await fetch("/api/radar/cex-journal/review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokens })
+    });
+    if (!reviewResponse.ok) {
+      throw new Error(`HTTP ${reviewResponse.status}`);
+    }
+    const payload = await reviewResponse.json();
+    radarState.journalEntries = Array.isArray(payload.entries) ? payload.entries : [];
+  } catch (error) {
+    radarState.journalError = error.message || "复盘日志同步失败";
+  }
 }
 
 function loadPinnedSymbols() {
@@ -271,7 +332,8 @@ function getPinnedTokens() {
     warnings: ["当前扫描结果中没有该币种"],
     expectationReasons: [],
     actionReasons: [],
-    indexConstituents: []
+    indexConstituents: [],
+    signalReview: normalizeSignalReview(null)
   });
 }
 
@@ -360,6 +422,7 @@ function renderRadarDetail() {
       ${detailMetric("失效条件", token.invalidLevel || "--")}
       ${detailMetric("阶段", phaseLabel(token.phase))}
     </div>
+    ${signalDebate(token.signalReview)}
     ${detailList("预期依据", token.expectationReasons)}
     ${detailList("动作依据", token.actionReasons)}
     ${detailList("核心标签", token.tags)}
@@ -374,6 +437,7 @@ function renderRadarDetail() {
       ${detailMetric("Mark/Index 溢价", formatPct(token.markIndexPremiumPct))}
       ${detailMetric("Open Interest", formatCompactNumber(token.openInterest))}
     </div>
+    ${journalHistory(token.symbol)}
     ${constituentList(token.indexConstituents)}
   `;
 
@@ -399,6 +463,72 @@ function detailList(label, items) {
       <div>${safeItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
     </div>
   `;
+}
+
+function signalDebate(review) {
+  const safeReview = normalizeSignalReview(review);
+  return `
+    <div class="signal-debate">
+      <h3>信号辩论</h3>
+      <div class="signal-debate-grid">
+        ${signalColumn("牛方", safeReview.bullCase)}
+        ${signalColumn("熊方", safeReview.bearCase)}
+        ${signalColumn("风控", safeReview.riskGate)}
+      </div>
+      <div class="decision-summary">${escapeHtml(safeReview.decisionSummary || "暂无决策摘要")}</div>
+    </div>
+  `;
+}
+
+function signalColumn(title, items) {
+  const safeItems = Array.isArray(items) && items.length ? items : ["--"];
+  return `
+    <section>
+      <h4>${escapeHtml(title)}</h4>
+      <div>${safeItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
+    </section>
+  `;
+}
+
+function journalHistory(symbol) {
+  const rows = radarState.journalEntries
+    .filter((entry) => String(entry.symbol || "").toUpperCase() === String(symbol || "").toUpperCase())
+    .slice(0, 5);
+  if (radarState.journalError) {
+    return `<div class="radar-error">复盘日志：${escapeHtml(radarState.journalError)}</div>`;
+  }
+  if (!rows.length) {
+    return `<div class="journal-history"><h3>历史复盘</h3><div class="empty-state">暂无复盘记录</div></div>`;
+  }
+  return `
+    <div class="journal-history">
+      <h3>历史复盘</h3>
+      ${rows.map((entry) => `
+        <article class="journal-entry">
+          <div>
+            <strong>${escapeHtml(formatDateTime(entry.observedAt))}</strong>
+            <span>${escapeHtml(actionLabel(entry.actionBias))} / ${escapeHtml(entry.expectedMovePctRange?.label || "--")}</span>
+          </div>
+          <div class="journal-review-row">
+            ${reviewPill("1D", entry.review1d)}
+            ${reviewPill("3D", entry.review3d)}
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function reviewPill(label, review) {
+  if (!review) return `<span class="review-pill pending">${escapeHtml(label)} 待复盘</span>`;
+  return `<span class="review-pill ${escapeAttr(review.outcomeLabel || "unclear")}">${escapeHtml(label)} ${formatPct(review.movePct)} ${escapeHtml(outcomeLabel(review.outcomeLabel))}</span>`;
+}
+
+function outcomeLabel(value) {
+  if (value === "hit") return "命中";
+  if (value === "partial") return "方向命中";
+  if (value === "miss") return "未命中";
+  return "不明确";
 }
 
 function constituentList(rows) {
@@ -507,6 +637,11 @@ function formatUsdPrice(value) {
   if (!Number.isFinite(numeric)) return "--";
   const maximumFractionDigits = numeric >= 1 ? 4 : 8;
   return `$${numeric.toLocaleString("en-US", { maximumFractionDigits })}`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "--";
+  return new Date(value).toLocaleString("zh-CN");
 }
 
 function formatWeight(value) {
