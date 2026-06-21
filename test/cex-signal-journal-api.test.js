@@ -22,7 +22,7 @@ async function getFreePort() {
 async function startServer(env) {
   const child = spawn(process.execPath, ["server.js"], {
     cwd: ROOT_DIR,
-    env: { ...process.env, ...env },
+    env: { ...process.env, CEX_BACKGROUND_MONITOR_ENABLED: "false", ...env },
     stdio: ["ignore", "pipe", "pipe"]
   });
 
