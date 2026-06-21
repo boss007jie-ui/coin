@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs/promises");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
+const { createCexBackgroundMonitor } = require("./lib/cex-background-monitor");
 const { createCexRadarScanner } = require("./lib/cex-radar-service");
 const {
   reviewJournalEntries,
@@ -13,6 +14,7 @@ const {
   saveCexSignalJournal
 } = require("./lib/cex-signal-journal-store");
 const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
+const { createTelegramNotifier } = require("./lib/telegram-notifier");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -33,6 +35,7 @@ const mimeTypes = {
 const quoteCache = new Map();
 let binanceTickerCache = null;
 let onchainBalanceCache = null;
+let cexBackgroundMonitor = null;
 const ONCHAIN_CACHE_TTL_MS = 60000;
 const WALLETS_FILE = path.join(ROOT_DIR, "data", "wallets.json");
 const CEX_SIGNAL_JOURNAL_FILE = process.env.CEX_SIGNAL_JOURNAL_FILE || path.join(ROOT_DIR, "data", "cex-signal-journal.json");
@@ -184,6 +187,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { ok: true, ...result });
     }
 
+    if (req.method === "GET" && requestUrl.pathname === "/api/radar/cex-monitor/status") {
+      return sendJson(res, { status: getCexBackgroundMonitorStatus() });
+    }
+
     if (req.method === "GET" && requestUrl.pathname === "/api/radar/config") {
       const config = await loadRadarConfig();
       return sendJson(res, config);
@@ -204,6 +211,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Asset Portfolio Hub is running at http://localhost:${PORT}`);
+  startCexBackgroundMonitorFromEnv().catch((error) => {
+    console.error("CEX background monitor failed to start:", error);
+  });
 });
 
 async function serveStatic(urlPath, res) {
@@ -2230,6 +2240,62 @@ function getCexRadarScanner() {
 
 async function fetchCexRadarScan(force = false, deepInspectLimit = undefined) {
   return getCexRadarScanner().scan({ force, deepInspectLimit });
+}
+
+function getCexBackgroundMonitorStatus() {
+  if (!cexBackgroundMonitor) {
+    return {
+      running: false,
+      enabled: false,
+      lastRunAt: null,
+      nextRunAt: null,
+      lastError: null,
+      lastSummary: null,
+      lastAlertCount: 0,
+      runCount: 0
+    };
+  }
+  return {
+    enabled: true,
+    ...cexBackgroundMonitor.getStatus()
+  };
+}
+
+async function startCexBackgroundMonitorFromEnv() {
+  const env = { ...(await readLocalEnv()), ...process.env };
+  if (!parseBoolean(env.CEX_BACKGROUND_MONITOR_ENABLED, false)) {
+    return;
+  }
+
+  cexBackgroundMonitor = createCexBackgroundMonitor({
+    scanCexRadar: ({ force, deepInspectLimit }) => fetchCexRadarScan(force, deepInspectLimit),
+    loadJournal: () => loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE),
+    saveJournal: (entries) => saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, entries),
+    notifier: createTelegramNotifier({ env }),
+    intervalMinutes: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES, 5),
+    deepInspectLimit: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_DEEP_LIMIT, 20),
+    pinnedSymbols: parseCsv(env.CEX_BACKGROUND_MONITOR_PINNED_SYMBOLS),
+    alertCooldownMs: parsePositiveNumber(env.CEX_ALERT_COOLDOWN_MINUTES, 60) * 60 * 1000
+  });
+  cexBackgroundMonitor.start();
+  console.log("CEX background monitor started");
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function parsePositiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function parseCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
 }
 
 async function fetchRadarScan(force = false) {

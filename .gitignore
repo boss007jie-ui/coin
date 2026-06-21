@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+.secrets/
+本地私密信息_不要上传/
 server.out.log
 server.err.log
 .superpowers/

@@ -92,6 +92,10 @@ test("CEX journal API loads, captures, filters, and reviews entries", async (t) 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { entries: [] });
 
+  response = await fetch(`${baseUrl}/api/radar/cex-monitor/status`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status.running, false);
+
   response = await fetch(`${baseUrl}/api/radar/cex-journal/capture`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

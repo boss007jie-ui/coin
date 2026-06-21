@@ -41,6 +41,36 @@ The journal records high-attention, high-risk, long-watch, short-watch, and pinn
 
 This data is local-only and ignored by Git.
 
+## VPS background monitor
+
+The server can run the CEX radar as a background monitor without keeping the browser open. Enable it with local `.env` values:
+
+```bash
+PORT=5187
+CEX_BACKGROUND_MONITOR_ENABLED=true
+CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES=5
+CEX_BACKGROUND_MONITOR_DEEP_LIMIT=20
+CEX_ALERT_COOLDOWN_MINUTES=60
+TELEGRAM_BOT_TOKEN=replace-with-bot-token
+TELEGRAM_CHAT_ID=replace-with-chat-id
+NO_PROXY=localhost,127.0.0.1
+```
+
+If the VPS cannot access Binance Futures directly, also set:
+
+```bash
+HTTPS_PROXY=http://proxy-host:proxy-port
+HTTP_PROXY=http://proxy-host:proxy-port
+```
+
+Run on a VPS with:
+
+```bash
+npm start
+```
+
+For 24-hour operation, run the server under `pm2` or `systemd` so it restarts after crashes or VPS reboots.
+
 If the CEX radar shows `Binance futures ticker scan failed`, the local network is probably blocking `https://fapi.binance.com`. Start your local proxy and set these private `.env` values:
 
 ```bash
