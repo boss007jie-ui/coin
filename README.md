@@ -52,6 +52,7 @@ CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES=5
 CEX_BACKGROUND_MONITOR_DEEP_LIMIT=20
 CEX_ALERT_COOLDOWN_MINUTES=60
 CEX_PAPER_TRADING_ENABLED=true
+CEX_PAPER_KLINES_PROVIDER=binance
 TELEGRAM_BOT_TOKEN=replace-with-bot-token
 TELEGRAM_CHAT_ID=replace-with-chat-id
 NO_PROXY=localhost,127.0.0.1
@@ -72,7 +73,7 @@ npm start
 
 For 24-hour operation, run the server under `pm2` or `systemd` so it restarts after crashes or VPS reboots.
 
-When `CEX_PAPER_TRADING_ENABLED=true`, the background monitor also runs a paper futures account with `1000 USDT` total starting equity. It sizes positions from account risk, caps leverage at `5x`, requires a stop loss, and checks Binance Futures candles to see whether take profit or stop loss was hit first.
+When `CEX_PAPER_TRADING_ENABLED=true`, the background monitor also runs a paper futures account with `1000 USDT` total starting equity. It sizes positions from account risk, caps leverage at `5x`, requires a stop loss, and checks futures candles to see whether take profit or stop loss was hit first. `CEX_PAPER_KLINES_PROVIDER=binance` keeps the default Binance Futures candle source; use `aster` to test Aster public perpetuals candles. This is still simulation-only and does not place live orders.
 
 If the CEX radar shows `Binance futures ticker scan failed`, the local network is probably blocking `https://fapi.binance.com`. Start your local proxy and set these private `.env` values:
 

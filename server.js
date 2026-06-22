@@ -18,6 +18,7 @@ const {
   loadCexPaperTrades,
   saveCexPaperTrades
 } = require("./lib/cex-paper-trading-store");
+const { createFuturesKlineFetcher } = require("./lib/futures-kline-provider");
 const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
 const { createTelegramNotifier } = require("./lib/telegram-notifier");
 
@@ -2296,13 +2297,20 @@ async function startCexBackgroundMonitorFromEnv() {
   }
 
   const paperTradingEnabled = parseBoolean(env.CEX_PAPER_TRADING_ENABLED, true);
+  const fetchPaperKlines = paperTradingEnabled
+    ? createFuturesKlineFetcher({
+      provider: env.CEX_PAPER_KLINES_PROVIDER || "binance",
+      fetchJson: fetchJsonWithFallback
+    })
+    : undefined;
+
   cexBackgroundMonitor = createCexBackgroundMonitor({
     scanCexRadar: ({ force, deepInspectLimit }) => fetchCexRadarScan(force, deepInspectLimit),
     loadJournal: () => loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE),
     saveJournal: (entries) => saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, entries),
     loadPaperTrades: paperTradingEnabled ? () => loadCexPaperTrades(CEX_PAPER_TRADES_FILE) : undefined,
     savePaperTrades: paperTradingEnabled ? (trades) => saveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades) : undefined,
-    fetchKlines: paperTradingEnabled ? (symbol, options) => fetchBinanceFuturesKlines(symbol, options) : undefined,
+    fetchKlines: fetchPaperKlines,
     notifier: createTelegramNotifier({ env }),
     intervalMinutes: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES, 5),
     deepInspectLimit: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_DEEP_LIMIT, 20),
@@ -2328,33 +2336,6 @@ function parseCsv(value) {
     .split(",")
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean);
-}
-
-async function fetchBinanceFuturesKlines(symbol, options = {}) {
-  const normalizedSymbol = String(symbol || "").trim().toUpperCase();
-  if (!normalizedSymbol) return [];
-
-  const url = new URL("https://fapi.binance.com/fapi/v1/klines");
-  url.searchParams.set("symbol", normalizedSymbol);
-  url.searchParams.set("interval", options.interval || "5m");
-  url.searchParams.set("limit", String(options.limit || 1000));
-  if (options.startTime) url.searchParams.set("startTime", String(options.startTime));
-  if (options.endTime) url.searchParams.set("endTime", String(options.endTime));
-
-  const rows = await fetchJsonWithFallback(url.toString(), 15_000, {
-    headers: { "User-Agent": "Mozilla/5.0 AssetPortfolioHub/0.1" }
-  });
-  if (!Array.isArray(rows)) return [];
-  return rows.map(normalizeKlineRow).filter(Boolean);
-}
-
-function normalizeKlineRow(row) {
-  const openTime = Number(row?.[0]);
-  const high = Number(row?.[2]);
-  const low = Number(row?.[3]);
-  const close = Number(row?.[4]);
-  if (!Number.isFinite(openTime) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
-  return { openTime, high, low, close };
 }
 
 async function fetchRadarScan(force = false) {
