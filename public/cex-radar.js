@@ -22,6 +22,9 @@ const radarState = {
   autoScanNextRunAt: null,
   journalEntries: [],
   journalError: null,
+  paperTrades: [],
+  paperFeedback: { closedCount: 0, setups: [], needsReview: [], worstSetups: [] },
+  paperError: null,
   loading: false,
   lastError: null,
   updatedAt: null
@@ -38,6 +41,7 @@ function initCexRadarPage() {
   loadPinnedSymbols();
   loadAutoScanSettings();
   loadCexJournal();
+  loadPaperTrades();
   bindRadarEvents();
   renderRadarPage();
   fetchCexRadarScan(false);
@@ -141,6 +145,7 @@ async function fetchCexRadarScan(force) {
     radarState.errors = Array.isArray(payload.errors) ? payload.errors : [];
     radarState.updatedAt = payload.updatedAt || new Date().toISOString();
     await syncCexJournal(radarState.tokens);
+    await loadPaperTrades();
     radarState.selectedSymbol = chooseSelectedSymbol(radarState.selectedSymbol);
   } catch (error) {
     radarState.lastError = error;
@@ -196,6 +201,25 @@ async function loadCexJournal() {
   } catch (error) {
     radarState.journalEntries = [];
     radarState.journalError = error.message || "复盘日志读取失败";
+  }
+}
+
+async function loadPaperTrades() {
+  try {
+    const response = await fetch("/api/radar/paper-trades", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    radarState.paperTrades = Array.isArray(payload.trades) ? payload.trades : [];
+    radarState.paperFeedback = normalizePaperFeedback(payload.feedback);
+    radarState.paperError = null;
+    renderRadarPage();
+  } catch (error) {
+    radarState.paperTrades = [];
+    radarState.paperFeedback = normalizePaperFeedback(null);
+    radarState.paperError = error.message || "模拟交易读取失败";
+    renderRadarPage();
   }
 }
 
@@ -533,6 +557,7 @@ function renderRadarDetail() {
       ${detailMetric("Mark/Index 溢价", formatPct(token.markIndexPremiumPct))}
       ${detailMetric("Open Interest", formatCompactNumber(token.openInterest))}
     </div>
+    ${paperFeedbackPanel(token)}
     ${journalHistory(token.symbol)}
     ${constituentList(token.indexConstituents)}
   `;
@@ -584,6 +609,84 @@ function signalColumn(title, items) {
       <div>${safeItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>
     </section>
   `;
+}
+
+function paperFeedbackPanel(token) {
+  if (radarState.paperError) {
+    return `<div class="radar-error">模拟交易：${escapeHtml(radarState.paperError)}</div>`;
+  }
+
+  const symbol = normalizeSymbolInput(token.symbol);
+  const symbolTrades = radarState.paperTrades
+    .filter((trade) => normalizeSymbolInput(trade.symbol) === symbol)
+    .slice(0, 8);
+  const closed = symbolTrades.filter((trade) => trade.status === "closed");
+  const open = symbolTrades.filter((trade) => trade.status === "open");
+  const pnl = closed.reduce((sum, trade) => sum + (toFiniteNumber(trade.pnlUsdt) || 0), 0);
+  const wins = closed.filter((trade) => (toFiniteNumber(trade.pnlUsdt) || 0) > 0).length;
+  const setupMatches = matchingPaperSetups(token).slice(0, 4);
+
+  if (!symbolTrades.length && !setupMatches.length) {
+    return `<div class="journal-history"><h3>模拟反馈</h3><div class="empty-state">暂无该币或同类 setup 的模拟结果</div></div>`;
+  }
+
+  return `
+    <div class="journal-history">
+      <h3>模拟反馈</h3>
+      <div class="radar-detail-grid">
+        ${detailMetric("该币平仓", closed.length)}
+        ${detailMetric("该币胜率", formatWinRate(wins, closed.length))}
+        ${detailMetric("该币PnL", formatSignedUsdt(pnl))}
+        ${detailMetric("未平仓", open.length)}
+      </div>
+      ${setupMatches.length ? setupMatches.map((setup) => `
+        <article class="journal-entry">
+          <div>
+            <strong>${escapeHtml(setup.needsReview ? "需复盘" : "同类表现")}</strong>
+            <span>${escapeHtml(setup.experimentGroup)}/${escapeHtml(setup.experimentGroupLabel)} ${escapeHtml(setup.actionSetup)}/${escapeHtml(setup.reviewLabel)}/${escapeHtml(setup.phase)}</span>
+          </div>
+          <div class="journal-review-row">
+            <span class="review-pill ${setup.needsReview ? "miss" : "hit"}">样本 ${escapeHtml(setup.sampleSize)}</span>
+            <span class="review-pill ${setup.needsReview ? "miss" : "hit"}">胜率 ${escapeHtml(formatPctValue(setup.winRatePct))}</span>
+            <span class="review-pill ${(setup.totalPnlUsdt || 0) >= 0 ? "hit" : "miss"}">PnL ${escapeHtml(formatSignedUsdt(setup.totalPnlUsdt))}</span>
+            <span class="review-pill ${setup.needsReview ? "miss" : "pending"}">连亏 ${escapeHtml(setup.maxLossStreak)}</span>
+          </div>
+        </article>
+      `).join("") : `<div class="empty-state">暂无同类 setup 样本</div>`}
+      ${symbolTrades.length ? `
+        <div class="radar-detail-list">
+          <h3>该币近单</h3>
+          <div>${symbolTrades.slice(0, 4).map((trade) => `<span>${escapeHtml(formatPaperTradeLine(trade))}</span>`).join("")}</div>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function matchingPaperSetups(token) {
+  const feedback = normalizePaperFeedback(radarState.paperFeedback);
+  const side = actionToSide(token.actionBias);
+  const reviewLabel = token.signalReview?.reviewLabel || token.phase || "unknown-signal";
+  const phase = token.phase || "unknown-phase";
+  return feedback.setups
+    .filter((setup) => {
+      const sideMatch = !side || setup.side === side;
+      const actionMatch = !token.actionBias || setup.actionSetup === token.actionBias;
+      const labelMatch = setup.reviewLabel === reviewLabel || setup.phase === phase;
+      return sideMatch && (actionMatch || labelMatch);
+    })
+    .sort((a, b) => {
+      if (a.needsReview !== b.needsReview) return a.needsReview ? -1 : 1;
+      return (a.totalPnlUsdt || 0) - (b.totalPnlUsdt || 0);
+    });
+}
+
+function formatPaperTradeLine(trade) {
+  const group = trade.experimentGroup || "baseline";
+  const side = trade.side === "short" ? "空" : "多";
+  const status = trade.status === "open" ? "持仓" : (trade.exitReason || "平仓");
+  const pnl = trade.status === "closed" ? ` / ${formatSignedUsdt(trade.pnlUsdt)}` : "";
+  return `${group} ${side} ${status}${pnl}`;
 }
 
 function journalHistory(symbol) {
@@ -706,10 +809,43 @@ function formatFunding(value) {
   return `${(numeric * 100).toFixed(4)}%`;
 }
 
+function formatSignedUsdt(value) {
+  const numeric = toFiniteNumber(value);
+  if (!Number.isFinite(numeric)) return "--";
+  return `${numeric >= 0 ? "+" : ""}${numeric.toFixed(2)} USDT`;
+}
+
+function formatWinRate(wins, total) {
+  if (!total) return "0.00%";
+  return `${((wins / total) * 100).toFixed(2)}%`;
+}
+
+function formatPctValue(value) {
+  const numeric = toFiniteNumber(value);
+  return Number.isFinite(numeric) ? `${numeric.toFixed(2)}%` : "--";
+}
+
+function actionToSide(value) {
+  if (value === "watch-long") return "long";
+  if (value === "watch-short") return "short";
+  return null;
+}
+
 function formatRatio(value) {
   const numeric = toFiniteNumber(value);
   if (!Number.isFinite(numeric)) return "--";
   return `${numeric.toFixed(1)}x`;
+}
+
+function normalizePaperFeedback(feedback) {
+  return {
+    closedCount: Number(feedback?.closedCount) || 0,
+    setupCount: Number(feedback?.setupCount) || 0,
+    needsReviewCount: Number(feedback?.needsReviewCount) || 0,
+    setups: Array.isArray(feedback?.setups) ? feedback.setups : [],
+    needsReview: Array.isArray(feedback?.needsReview) ? feedback.needsReview : [],
+    worstSetups: Array.isArray(feedback?.worstSetups) ? feedback.worstSetups : []
+  };
 }
 
 function formatCompactUsd(value) {

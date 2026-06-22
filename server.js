@@ -20,6 +20,7 @@ const {
   loadCexPaperState,
   saveCexPaperState
 } = require("./lib/cex-paper-trading-store");
+const { buildPaperFeedbackSummary } = require("./lib/cex-paper-feedback");
 const { createFuturesKlineFetcher } = require("./lib/futures-kline-provider");
 const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
 const { createTelegramNotifier } = require("./lib/telegram-notifier");
@@ -201,7 +202,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && requestUrl.pathname === "/api/radar/paper-trades") {
       const trades = await loadCexPaperTrades(CEX_PAPER_TRADES_FILE);
       trades.sort((a, b) => (Date.parse(b.openedAt || b.createdAt || "") || 0) - (Date.parse(a.openedAt || a.createdAt || "") || 0));
-      return sendJson(res, { trades });
+      return sendJson(res, { trades, feedback: buildPaperFeedbackSummary(trades) });
     }
 
     if (req.method === "GET" && requestUrl.pathname === "/api/radar/cex-monitor/status") {

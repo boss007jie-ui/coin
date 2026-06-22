@@ -338,6 +338,51 @@ test("background monitor sends one daily paper trading summary after 22:00 Beiji
         pnlUsdt: 20
       },
       {
+        id: "LOSS-1",
+        symbol: "LABUSDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        experimentGroupLabel: "保守止盈",
+        side: "long",
+        actionBias: "watch-long",
+        reviewLabel: "continuation",
+        phase: "acceleration",
+        openedAt: "2026-06-22T01:00:00.000Z",
+        exitAt: "2026-06-22T02:00:00.000Z",
+        exitReason: "trailing-stop",
+        pnlUsdt: -10
+      },
+      {
+        id: "LOSS-2",
+        symbol: "LABUSDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        experimentGroupLabel: "保守止盈",
+        side: "long",
+        actionBias: "watch-long",
+        reviewLabel: "continuation",
+        phase: "acceleration",
+        openedAt: "2026-06-22T02:00:00.000Z",
+        exitAt: "2026-06-22T03:00:00.000Z",
+        exitReason: "trailing-stop",
+        pnlUsdt: -8
+      },
+      {
+        id: "LOSS-3",
+        symbol: "RAVEUSDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        experimentGroupLabel: "保守止盈",
+        side: "long",
+        actionBias: "watch-long",
+        reviewLabel: "continuation",
+        phase: "acceleration",
+        openedAt: "2026-06-22T03:00:00.000Z",
+        exitAt: "2026-06-22T04:00:00.000Z",
+        exitReason: "trailing-stop",
+        pnlUsdt: -7
+      },
+      {
         id: "OPEN",
         symbol: "OPENUSDT",
         status: "open",
@@ -371,7 +416,10 @@ test("background monitor sends one daily paper trading summary after 22:00 Beiji
   const dailySummaries = sent.filter((message) => message.includes("[CEX 模拟交易] 每日总结"));
   assert.equal(dailySummaries.length, 1);
   assert.ok(dailySummaries[0].includes("2026-06-22"));
-  assert.ok(dailySummaries[0].includes("平仓 1"));
+  assert.ok(dailySummaries[0].includes("平仓 4"));
+  assert.ok(dailySummaries[0].includes("需复盘"));
+  assert.ok(dailySummaries[0].includes("watch-long/continuation/acceleration"));
+  assert.ok(dailySummaries[0].includes("胜率 0.00%"));
   assert.equal(paperState.lastDailySummaryDateKey, "2026-06-22");
 });
 

@@ -82,6 +82,8 @@ When `CEX_PAPER_TRADING_ENABLED=true`, the background monitor also runs paper fu
 
 The paper monitor sends a daily Telegram summary after `22:00` Beijing time and a weekly summary after `22:00` Beijing time every Sunday. It stores summary markers in `data/cex-paper-state.json` by default so restarts do not resend the same report. If paper equity falls below `500 USDT`, it sends a capital-stop review and switches future entries to `defensive-v1`, which lowers risk, leverage, concurrent positions, and entry-risk tolerance.
 
+Closed paper trades also feed a setup-level review layer. The feedback groups results by experiment group, direction, action setup, signal label, and phase, then reports win rate, total PnL, average PnL, worst loss, loss streak, and review flags. Daily/weekly Telegram summaries include `需复盘` or `最差组合` lines once enough closed samples exist, and `/api/radar/paper-trades` returns the same feedback for the CEX radar detail panel. Future live-trading adapters must treat `needsReview` setups as blocked for automation until the rule is reviewed.
+
 If the CEX radar shows `Binance futures ticker scan failed`, the local network is probably blocking `https://fapi.binance.com`. Start your local proxy and set these private `.env` values:
 
 ```bash

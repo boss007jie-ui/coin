@@ -55,6 +55,10 @@ test("buildPaperTradeFromToken sizes a trade from total account risk, not fixed 
   assert.equal(decision.trade.marginMode, "isolated");
   assert.equal(decision.trade.stopLossMode, "trailing");
   assert.equal(decision.trade.experimentGroup, "baseline");
+  assert.equal(decision.trade.actionBias, "watch-long");
+  assert.equal(decision.trade.shortTermBias, "bullish");
+  assert.equal(decision.trade.reviewLabel, "continuation");
+  assert.equal(decision.trade.phase, "acceleration");
 });
 
 test("buildPaperTradeFromToken can use optimistic take profit for comparison group", () => {

@@ -89,6 +89,7 @@ test("CEX journal API loads, captures, filters, and reviews entries", async (t) 
   t.after(() => child.kill());
 
   const baseUrl = `http://127.0.0.1:${port}`;
+  let payload;
 
   let response = await fetch(`${baseUrl}/api/radar/cex-journal`);
   assert.equal(response.status, 200);
@@ -100,7 +101,10 @@ test("CEX journal API loads, captures, filters, and reviews entries", async (t) 
 
   response = await fetch(`${baseUrl}/api/radar/paper-trades`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { trades: [] });
+  payload = await response.json();
+  assert.deepEqual(payload.trades, []);
+  assert.equal(payload.feedback.closedCount, 0);
+  assert.deepEqual(payload.feedback.setups, []);
 
   response = await fetch(`${baseUrl}/api/radar/cex-journal/capture`, {
     method: "POST",
@@ -108,7 +112,7 @@ test("CEX journal API loads, captures, filters, and reviews entries", async (t) 
     body: JSON.stringify({ tokens: [sampleToken()], pinnedSymbols: [] })
   });
   assert.equal(response.status, 200);
-  let payload = await response.json();
+  payload = await response.json();
   assert.equal(payload.ok, true);
   assert.equal(payload.capturedCount, 1);
   assert.equal(payload.entries[0].symbol, "LABUSDT");

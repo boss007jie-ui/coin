@@ -20,3 +20,10 @@ test("CEX radar script persists auto-scan preferences and schedules scans", () =
   assert.match(script, /scheduleAutoScan/);
   assert.match(script, /clearAutoScanTimer/);
 });
+
+test("CEX radar script surfaces paper feedback in token detail", () => {
+  assert.match(script, /\/api\/radar\/paper-trades/);
+  assert.match(script, /paperFeedbackPanel/);
+  assert.match(script, /模拟反馈/);
+  assert.match(script, /需复盘/);
+});
