@@ -311,3 +311,158 @@ test("background monitor records scan errors and sends one error alert", async (
   assert.ok(sent[0].includes("数据源异常"));
   assert.ok(sent[0].includes("restricted location"));
 });
+
+test("background monitor sends one daily paper trading summary after 22:00 Beijing time", async () => {
+  const sent = [];
+  let paperState = {};
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-22T14:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 1, deepInspected: 1, attentionCount: 0, riskCount: 0 },
+      tokens: [],
+      errors: []
+    }),
+    loadJournal: async () => [],
+    saveJournal: async () => {},
+    loadPaperTrades: async () => [
+      {
+        id: "WIN",
+        symbol: "WINUSDT",
+        status: "closed",
+        side: "long",
+        openedAt: "2026-06-22T01:00:00.000Z",
+        exitAt: "2026-06-22T06:00:00.000Z",
+        pnlUsdt: 20
+      },
+      {
+        id: "OPEN",
+        symbol: "OPENUSDT",
+        status: "open",
+        side: "short",
+        marginUsdt: 50,
+        openedAt: "2026-06-22T05:00:00.000Z",
+        unrealizedPnlUsdt: -3
+      }
+    ],
+    savePaperTrades: async () => {},
+    loadPaperState: async () => paperState,
+    savePaperState: async (nextState) => {
+      paperState = nextState;
+    },
+    fetchKlines: async () => [],
+    notifier: {
+      enabled: true,
+      sendMessage: async (message) => {
+        sent.push(message);
+        return { ok: true };
+      }
+    },
+    now: () => new Date("2026-06-22T14:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  await monitor.runOnce();
+  await monitor.runOnce();
+
+  const dailySummaries = sent.filter((message) => message.includes("[CEX 模拟交易] 每日总结"));
+  assert.equal(dailySummaries.length, 1);
+  assert.ok(dailySummaries[0].includes("2026-06-22"));
+  assert.ok(dailySummaries[0].includes("平仓 1"));
+  assert.equal(paperState.lastDailySummaryDateKey, "2026-06-22");
+});
+
+test("background monitor sends weekly paper trading summary on Sunday after 22:00 Beijing time", async () => {
+  const sent = [];
+  let paperState = {};
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-21T14:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 1, deepInspected: 1, attentionCount: 0, riskCount: 0 },
+      tokens: [],
+      errors: []
+    }),
+    loadJournal: async () => [],
+    saveJournal: async () => {},
+    loadPaperTrades: async () => [
+      {
+        id: "WEEK-WIN",
+        symbol: "WEEKUSDT",
+        status: "closed",
+        side: "long",
+        openedAt: "2026-06-18T01:00:00.000Z",
+        exitAt: "2026-06-21T06:00:00.000Z",
+        pnlUsdt: 30
+      }
+    ],
+    savePaperTrades: async () => {},
+    loadPaperState: async () => paperState,
+    savePaperState: async (nextState) => {
+      paperState = nextState;
+    },
+    fetchKlines: async () => [],
+    notifier: {
+      enabled: true,
+      sendMessage: async (message) => {
+        sent.push(message);
+        return { ok: true };
+      }
+    },
+    now: () => new Date("2026-06-21T14:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  await monitor.runOnce();
+
+  assert.ok(sent.some((message) => message.includes("[CEX 模拟交易] 本周总结")));
+  assert.equal(paperState.lastWeeklySummaryWeekKey, "2026-W25");
+});
+
+test("background monitor switches to defensive paper strategy when equity drops below 500", async () => {
+  const sent = [];
+  let paperState = {};
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-22T08:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 1, deepInspected: 1, attentionCount: 0, riskCount: 0 },
+      tokens: [],
+      errors: []
+    }),
+    loadJournal: async () => [],
+    saveJournal: async () => {},
+    loadPaperTrades: async () => [
+      {
+        id: "LOSS",
+        symbol: "LOSSUSDT",
+        status: "closed",
+        side: "long",
+        openedAt: "2026-06-20T01:00:00.000Z",
+        exitAt: "2026-06-22T07:00:00.000Z",
+        pnlUsdt: -520
+      }
+    ],
+    savePaperTrades: async () => {},
+    loadPaperState: async () => paperState,
+    savePaperState: async (nextState) => {
+      paperState = nextState;
+    },
+    fetchKlines: async () => [],
+    notifier: {
+      enabled: true,
+      sendMessage: async (message) => {
+        sent.push(message);
+        return { ok: true };
+      }
+    },
+    now: () => new Date("2026-06-22T08:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  await monitor.runOnce();
+
+  assert.equal(paperState.strategyProfile, "defensive-v1");
+  assert.ok(sent.some((message) => message.includes("本金低于 500")));
+  assert.equal(monitor.getStatus().lastPaperTrading.strategyProfile, "defensive-v1");
+});

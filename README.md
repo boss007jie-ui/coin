@@ -53,6 +53,7 @@ CEX_BACKGROUND_MONITOR_DEEP_LIMIT=20
 CEX_ALERT_COOLDOWN_MINUTES=60
 CEX_PAPER_TRADING_ENABLED=true
 CEX_PAPER_KLINES_PROVIDER=binance
+CEX_PAPER_STATE_FILE=
 TELEGRAM_BOT_TOKEN=replace-with-bot-token
 TELEGRAM_CHAT_ID=replace-with-chat-id
 NO_PROXY=localhost,127.0.0.1
@@ -73,7 +74,9 @@ npm start
 
 For 24-hour operation, run the server under `pm2` or `systemd` so it restarts after crashes or VPS reboots.
 
-When `CEX_PAPER_TRADING_ENABLED=true`, the background monitor also runs a paper futures account with `1000 USDT` total starting equity. It sizes positions from account risk, caps leverage at `5x`, requires a stop loss, and checks futures candles to see whether take profit or stop loss was hit first. `CEX_PAPER_KLINES_PROVIDER=binance` keeps the default Binance Futures candle source; use `aster` to test Aster public perpetuals candles. This is still simulation-only and does not place live orders.
+When `CEX_PAPER_TRADING_ENABLED=true`, the background monitor also runs a paper futures account with `1000 USDT` total starting equity. It sizes positions from account risk, caps leverage at `5x`, requires a stop loss, and checks futures candles to see whether take profit or stop loss was hit first. If a live signal flips direction, the paper position exits with `signal-reversal`; if risk turns into avoid or exceeds the risk gate, it exits with `signal-risk-off`. `CEX_PAPER_KLINES_PROVIDER=binance` keeps the default Binance Futures candle source; use `aster` to test Aster public perpetuals candles. This is still simulation-only and does not place live orders.
+
+The paper monitor sends a daily Telegram summary after `22:00` Beijing time and a weekly summary after `22:00` Beijing time every Sunday. It stores summary markers in `data/cex-paper-state.json` by default so restarts do not resend the same report. If paper equity falls below `500 USDT`, it sends a capital-stop review and switches future entries to `defensive-v1`, which lowers risk, leverage, concurrent positions, and entry-risk tolerance.
 
 If the CEX radar shows `Binance futures ticker scan failed`, the local network is probably blocking `https://fapi.binance.com`. Start your local proxy and set these private `.env` values:
 

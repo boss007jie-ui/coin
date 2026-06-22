@@ -16,7 +16,9 @@ const {
 } = require("./lib/cex-signal-journal-store");
 const {
   loadCexPaperTrades,
-  saveCexPaperTrades
+  saveCexPaperTrades,
+  loadCexPaperState,
+  saveCexPaperState
 } = require("./lib/cex-paper-trading-store");
 const { createFuturesKlineFetcher } = require("./lib/futures-kline-provider");
 const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
@@ -47,6 +49,7 @@ const ONCHAIN_CACHE_TTL_MS = 60000;
 const WALLETS_FILE = path.join(ROOT_DIR, "data", "wallets.json");
 const CEX_SIGNAL_JOURNAL_FILE = process.env.CEX_SIGNAL_JOURNAL_FILE || path.join(ROOT_DIR, "data", "cex-signal-journal.json");
 const CEX_PAPER_TRADES_FILE = process.env.CEX_PAPER_TRADES_FILE || path.join(ROOT_DIR, "data", "cex-paper-trades.json");
+const CEX_PAPER_STATE_FILE = process.env.CEX_PAPER_STATE_FILE || path.join(ROOT_DIR, "data", "cex-paper-state.json");
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -2310,6 +2313,8 @@ async function startCexBackgroundMonitorFromEnv() {
     saveJournal: (entries) => saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, entries),
     loadPaperTrades: paperTradingEnabled ? () => loadCexPaperTrades(CEX_PAPER_TRADES_FILE) : undefined,
     savePaperTrades: paperTradingEnabled ? (trades) => saveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades) : undefined,
+    loadPaperState: paperTradingEnabled ? () => loadCexPaperState(CEX_PAPER_STATE_FILE) : undefined,
+    savePaperState: paperTradingEnabled ? (state) => saveCexPaperState(CEX_PAPER_STATE_FILE, state) : undefined,
     fetchKlines: fetchPaperKlines,
     notifier: createTelegramNotifier({ env }),
     intervalMinutes: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES, 5),

@@ -156,3 +156,77 @@ test("runPaperTradingCycle opens eligible trades and refuses duplicate open symb
   assert.ok(result.trades.some((trade) => trade.symbol === "NEWUSDT"));
   assert.ok(result.skipped.some((item) => item.symbol === "LABUSDT" && item.reason === "duplicate-open-symbol"));
 });
+
+test("runPaperTradingCycle closes and reverses when the signal flips direction", async () => {
+  const result = await runPaperTradingCycle({
+    ledger: [{
+      id: "LABUSDT-existing",
+      symbol: "LABUSDT",
+      status: "open",
+      side: "long",
+      entryPrice: 10,
+      marginUsdt: 83.33,
+      notionalUsdt: 250,
+      stopLossPrice: 9.4,
+      takeProfitPrice: 10.8,
+      openedAt: "2026-06-22T00:00:00.000Z"
+    }],
+    tokens: [
+      token({
+        actionBias: "watch-short",
+        shortTermBias: "bearish",
+        lastPrice: 9,
+        expectedMovePctRange: { lower: -25, upper: -10, label: "-25% ~ -10%" }
+      })
+    ],
+    fetchKlines: async () => [
+      candle({
+        openTime: Date.parse("2026-06-22T00:05:00.000Z"),
+        high: 10.1,
+        low: 9.7,
+        close: 9.9
+      })
+    ],
+    now: new Date("2026-06-22T01:00:00.000Z")
+  });
+
+  assert.equal(result.closedCount, 1);
+  assert.equal(result.closedTrades[0].exitReason, "signal-reversal");
+  assert.equal(result.closedTrades[0].exitPrice, 9);
+  assert.equal(result.closedTrades[0].pnlUsdt, -25);
+  assert.equal(result.openedCount, 1);
+  assert.equal(result.openedTrades[0].side, "short");
+});
+
+test("runPaperTradingCycle closes risk-off signals without opening a replacement", async () => {
+  const result = await runPaperTradingCycle({
+    ledger: [{
+      id: "RISKUSDT-existing",
+      symbol: "RISKUSDT",
+      status: "open",
+      side: "short",
+      entryPrice: 20,
+      marginUsdt: 80,
+      notionalUsdt: 240,
+      stopLossPrice: 21.2,
+      takeProfitPrice: 18,
+      openedAt: "2026-06-22T00:00:00.000Z"
+    }],
+    tokens: [
+      token({
+        symbol: "RISKUSDT",
+        actionBias: "avoid",
+        shortTermBias: "volatile-unclear",
+        lastPrice: 19.5,
+        riskScore: 85
+      })
+    ],
+    fetchKlines: async () => [],
+    now: new Date("2026-06-22T01:00:00.000Z")
+  });
+
+  assert.equal(result.closedCount, 1);
+  assert.equal(result.closedTrades[0].exitReason, "signal-risk-off");
+  assert.equal(result.openedCount, 0);
+  assert.equal(result.trades.filter((trade) => trade.status === "open").length, 0);
+});

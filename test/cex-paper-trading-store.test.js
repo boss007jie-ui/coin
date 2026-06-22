@@ -6,7 +6,9 @@ const path = require("path");
 
 const {
   loadCexPaperTrades,
-  saveCexPaperTrades
+  saveCexPaperTrades,
+  loadCexPaperState,
+  saveCexPaperState
 } = require("../lib/cex-paper-trading-store");
 
 async function tempLedgerPath() {
@@ -48,4 +50,20 @@ test("malformed paper trades file throws local data error without overwriting", 
   );
 
   assert.equal(await fs.readFile(filePath, "utf8"), "{ bad json");
+});
+
+test("saves and loads paper trading state", async () => {
+  const filePath = await tempLedgerPath();
+
+  assert.deepEqual(await loadCexPaperState(filePath), {});
+
+  await saveCexPaperState(filePath, {
+    strategyProfile: "defensive-v1",
+    lastDailySummaryDateKey: "2026-06-22"
+  });
+
+  assert.deepEqual(await loadCexPaperState(filePath), {
+    strategyProfile: "defensive-v1",
+    lastDailySummaryDateKey: "2026-06-22"
+  });
 });
