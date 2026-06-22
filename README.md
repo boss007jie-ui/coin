@@ -4,6 +4,8 @@ Local asset dashboard and CEX altcoin radar prototype.
 
 This project is now governed by the CEX trading charter in `docs/project-trading-charter.md`: monitoring exists to support practical trading decisions, risk control, review, and eventual automated execution. It is not a research dashboard for its own sake.
 
+Use `docs/prompts/mission-watchdog-agent.md` for a read-only Mission Watchdog agent. If it finds a `Yellow` or `Red` drift, it should write a solution SPEC under `docs/superpowers/specs/` using `docs/prompts/watchdog-spec-template.md`.
+
 ## What is included
 
 - Multi-platform asset dashboard frontend.
