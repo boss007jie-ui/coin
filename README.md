@@ -2,6 +2,8 @@
 
 Local asset dashboard and CEX altcoin radar prototype.
 
+This project is now governed by the CEX trading charter in `docs/project-trading-charter.md`: monitoring exists to support practical trading decisions, risk control, review, and eventual automated execution. It is not a research dashboard for its own sake.
+
 ## What is included
 
 - Multi-platform asset dashboard frontend.
