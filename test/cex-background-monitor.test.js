@@ -103,6 +103,42 @@ test("background monitor scan saves journal and sends Telegram alerts", async ()
   assert.equal(monitor.getStatus().lastSummary.scannedFutures, 10);
 });
 
+test("background monitor runs paper trading cycle when dependencies are configured", async () => {
+  let paperTrades = [];
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-21T08:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 2, deepInspected: 1, attentionCount: 1, riskCount: 0 },
+      tokens: [token()],
+      errors: []
+    }),
+    loadJournal: async () => [],
+    saveJournal: async () => {},
+    loadPaperTrades: async () => paperTrades,
+    savePaperTrades: async (trades) => {
+      paperTrades = trades;
+    },
+    fetchKlines: async () => [],
+    notifier: {
+      enabled: true,
+      sendMessage: async () => ({ ok: true })
+    },
+    now: () => new Date("2026-06-21T08:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  const result = await monitor.runOnce();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.paperTrading.openedCount, 1);
+  assert.equal(result.paperTrading.closedCount, 0);
+  assert.equal(paperTrades.length, 1);
+  assert.equal(paperTrades[0].symbol, "LABUSDT");
+  assert.equal(paperTrades[0].status, "open");
+  assert.equal(monitor.getStatus().lastPaperTrading.openedCount, 1);
+});
+
 test("background monitor keeps scan successful when Telegram alert fails", async () => {
   const saved = [];
   const monitor = createCexBackgroundMonitor({

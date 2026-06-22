@@ -14,6 +14,10 @@ const {
   loadCexSignalJournal,
   saveCexSignalJournal
 } = require("./lib/cex-signal-journal-store");
+const {
+  loadCexPaperTrades,
+  saveCexPaperTrades
+} = require("./lib/cex-paper-trading-store");
 const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
 const { createTelegramNotifier } = require("./lib/telegram-notifier");
 
@@ -41,6 +45,7 @@ let cexBackgroundMonitor = null;
 const ONCHAIN_CACHE_TTL_MS = 60000;
 const WALLETS_FILE = path.join(ROOT_DIR, "data", "wallets.json");
 const CEX_SIGNAL_JOURNAL_FILE = process.env.CEX_SIGNAL_JOURNAL_FILE || path.join(ROOT_DIR, "data", "cex-signal-journal.json");
+const CEX_PAPER_TRADES_FILE = process.env.CEX_PAPER_TRADES_FILE || path.join(ROOT_DIR, "data", "cex-paper-trades.json");
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -187,6 +192,12 @@ const server = http.createServer(async (req, res) => {
       const result = reviewJournalEntries(entries, priceBySymbol, new Date());
       await saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, result.entries);
       return sendJson(res, { ok: true, ...result });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/radar/paper-trades") {
+      const trades = await loadCexPaperTrades(CEX_PAPER_TRADES_FILE);
+      trades.sort((a, b) => (Date.parse(b.openedAt || b.createdAt || "") || 0) - (Date.parse(a.openedAt || a.createdAt || "") || 0));
+      return sendJson(res, { trades });
     }
 
     if (req.method === "GET" && requestUrl.pathname === "/api/radar/cex-monitor/status") {
@@ -2267,6 +2278,8 @@ function getCexBackgroundMonitorStatus() {
       lastError: null,
       lastSummary: null,
       lastAlertCount: 0,
+      lastPaperTrading: null,
+      lastPaperTradingError: null,
       runCount: 0
     };
   }
@@ -2282,10 +2295,14 @@ async function startCexBackgroundMonitorFromEnv() {
     return;
   }
 
+  const paperTradingEnabled = parseBoolean(env.CEX_PAPER_TRADING_ENABLED, true);
   cexBackgroundMonitor = createCexBackgroundMonitor({
     scanCexRadar: ({ force, deepInspectLimit }) => fetchCexRadarScan(force, deepInspectLimit),
     loadJournal: () => loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE),
     saveJournal: (entries) => saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, entries),
+    loadPaperTrades: paperTradingEnabled ? () => loadCexPaperTrades(CEX_PAPER_TRADES_FILE) : undefined,
+    savePaperTrades: paperTradingEnabled ? (trades) => saveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades) : undefined,
+    fetchKlines: paperTradingEnabled ? (symbol, options) => fetchBinanceFuturesKlines(symbol, options) : undefined,
     notifier: createTelegramNotifier({ env }),
     intervalMinutes: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES, 5),
     deepInspectLimit: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_DEEP_LIMIT, 20),
@@ -2311,6 +2328,33 @@ function parseCsv(value) {
     .split(",")
     .map((item) => item.trim().toUpperCase())
     .filter(Boolean);
+}
+
+async function fetchBinanceFuturesKlines(symbol, options = {}) {
+  const normalizedSymbol = String(symbol || "").trim().toUpperCase();
+  if (!normalizedSymbol) return [];
+
+  const url = new URL("https://fapi.binance.com/fapi/v1/klines");
+  url.searchParams.set("symbol", normalizedSymbol);
+  url.searchParams.set("interval", options.interval || "5m");
+  url.searchParams.set("limit", String(options.limit || 1000));
+  if (options.startTime) url.searchParams.set("startTime", String(options.startTime));
+  if (options.endTime) url.searchParams.set("endTime", String(options.endTime));
+
+  const rows = await fetchJsonWithFallback(url.toString(), 15_000, {
+    headers: { "User-Agent": "Mozilla/5.0 AssetPortfolioHub/0.1" }
+  });
+  if (!Array.isArray(rows)) return [];
+  return rows.map(normalizeKlineRow).filter(Boolean);
+}
+
+function normalizeKlineRow(row) {
+  const openTime = Number(row?.[0]);
+  const high = Number(row?.[2]);
+  const low = Number(row?.[3]);
+  const close = Number(row?.[4]);
+  if (!Number.isFinite(openTime) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) return null;
+  return { openTime, high, low, close };
 }
 
 async function fetchRadarScan(force = false) {

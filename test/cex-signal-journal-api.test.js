@@ -80,9 +80,11 @@ test("CEX journal API loads, captures, filters, and reviews entries", async (t) 
   const port = await getFreePort();
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cex-journal-api-"));
   const journalFile = path.join(dir, "cex-signal-journal.json");
+  const paperTradesFile = path.join(dir, "cex-paper-trades.json");
   const child = await startServer({
     PORT: String(port),
-    CEX_SIGNAL_JOURNAL_FILE: journalFile
+    CEX_SIGNAL_JOURNAL_FILE: journalFile,
+    CEX_PAPER_TRADES_FILE: paperTradesFile
   });
   t.after(() => child.kill());
 
@@ -95,6 +97,10 @@ test("CEX journal API loads, captures, filters, and reviews entries", async (t) 
   response = await fetch(`${baseUrl}/api/radar/cex-monitor/status`);
   assert.equal(response.status, 200);
   assert.equal((await response.json()).status.running, false);
+
+  response = await fetch(`${baseUrl}/api/radar/paper-trades`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { trades: [] });
 
   response = await fetch(`${baseUrl}/api/radar/cex-journal/capture`, {
     method: "POST",
