@@ -135,12 +135,15 @@ test("background monitor runs paper trading cycle when dependencies are configur
   const result = await monitor.runOnce();
 
   assert.equal(result.ok, true);
-  assert.equal(result.paperTrading.openedCount, 1);
+  assert.equal(result.paperTrading.openedCount, 2);
   assert.equal(result.paperTrading.closedCount, 0);
-  assert.equal(paperTrades.length, 1);
+  assert.equal(paperTrades.length, 2);
   assert.equal(paperTrades[0].symbol, "LABUSDT");
   assert.equal(paperTrades[0].status, "open");
-  assert.equal(monitor.getStatus().lastPaperTrading.openedCount, 1);
+  assert.deepEqual(paperTrades.map((trade) => trade.experimentGroup).sort(), ["baseline", "optimistic"]);
+  assert.equal(monitor.getStatus().lastPaperTrading.openedCount, 2);
+  assert.equal(monitor.getStatus().lastPaperTrading.groups.baseline.openCount, 1);
+  assert.equal(monitor.getStatus().lastPaperTrading.groups.optimistic.openCount, 1);
   assert.ok(sent.some((message) => message.includes("[CEX 模拟交易]")));
 });
 

@@ -40,7 +40,8 @@ test("buildPaperTradeFromToken sizes a trade from total account risk, not fixed 
   const decision = buildPaperTradeFromToken(token(), {
     equityUsdt: 1000,
     usedMarginUsdt: 0,
-    openTrades: []
+    openTrades: [],
+    experimentGroup: "baseline"
   });
 
   assert.equal(decision.action, "open");
@@ -51,6 +52,24 @@ test("buildPaperTradeFromToken sizes a trade from total account risk, not fixed 
   assert.equal(decision.trade.marginUsdt, 83.33);
   assert.equal(decision.trade.stopLossPrice, 9.4);
   assert.equal(decision.trade.takeProfitPrice, 10.8);
+  assert.equal(decision.trade.stopLossMode, "trailing");
+  assert.equal(decision.trade.experimentGroup, "baseline");
+});
+
+test("buildPaperTradeFromToken can use optimistic take profit for comparison group", () => {
+  const decision = buildPaperTradeFromToken(token(), {
+    equityUsdt: 1000,
+    usedMarginUsdt: 0,
+    openTrades: [],
+    experimentGroup: "optimistic",
+    takeProfitMode: "optimistic"
+  });
+
+  assert.equal(decision.action, "open");
+  assert.equal(decision.trade.takeProfitPct, 18);
+  assert.equal(decision.trade.takeProfitPrice, 11.8);
+  assert.equal(decision.trade.stopLossPct, 6);
+  assert.equal(decision.trade.stopLossMode, "trailing");
 });
 
 test("buildPaperTradeFromToken caps leverage at 5 and skips non-trade actions", () => {
@@ -93,10 +112,39 @@ test("evaluatePaperTradeWithCandles uses conservative stop loss when TP and SL t
   ]);
 
   assert.equal(result.status, "closed");
-  assert.equal(result.exitReason, "stop-loss");
-  assert.equal(result.exitPrice, 9.4);
+  assert.equal(result.exitReason, "trailing-stop");
+  assert.equal(result.exitPrice, 10.34);
   assert.equal(result.ambiguousExit, true);
-  assert.equal(result.pnlUsdt, -15);
+  assert.equal(result.pnlUsdt, 8.5);
+});
+
+test("evaluatePaperTradeWithCandles trails stop after favorable movement", () => {
+  const trade = buildPaperTradeFromToken(token(), {
+    equityUsdt: 1000,
+    usedMarginUsdt: 0,
+    openTrades: [],
+    now: new Date("2026-06-22T00:00:00.000Z")
+  }).trade;
+
+  const result = evaluatePaperTradeWithCandles(trade, [
+    candle({
+      openTime: Date.parse("2026-06-22T00:05:00.000Z"),
+      high: 10.7,
+      low: 10.1,
+      close: 10.5
+    }),
+    candle({
+      openTime: Date.parse("2026-06-22T00:10:00.000Z"),
+      high: 10.55,
+      low: 10.0,
+      close: 10.2
+    })
+  ]);
+
+  assert.equal(result.status, "closed");
+  assert.equal(result.exitReason, "trailing-stop");
+  assert.equal(result.exitPrice, 10.058);
+  assert.equal(result.pnlUsdt, 1.45);
 });
 
 test("evaluatePaperTradeWithCandles supports short take profit from candle lows", () => {
@@ -125,9 +173,9 @@ test("evaluatePaperTradeWithCandles supports short take profit from candle lows"
   ]);
 
   assert.equal(result.status, "closed");
-  assert.equal(result.exitReason, "take-profit");
-  assert.equal(result.exitPrice, 18);
-  assert.equal(result.pnlUsdt, 25);
+  assert.equal(result.exitReason, "trailing-stop");
+  assert.equal(result.exitPrice, 18.868);
+  assert.equal(result.pnlUsdt, 14.15);
 });
 
 test("runPaperTradingCycle opens eligible trades and refuses duplicate open symbols", async () => {
@@ -145,7 +193,8 @@ test("runPaperTradingCycle opens eligible trades and refuses duplicate open symb
       token({ symbol: "NEWUSDT", lastPrice: 2, expectedMovePctRange: { lower: 8, upper: 18, label: "+8% ~ +18%" } })
     ],
     fetchKlines: async () => [],
-    now: new Date("2026-06-22T01:00:00.000Z")
+    now: new Date("2026-06-22T01:00:00.000Z"),
+    experimentGroups: ["baseline"]
   });
 
   assert.equal(result.openedCount, 1);
@@ -155,6 +204,21 @@ test("runPaperTradingCycle opens eligible trades and refuses duplicate open symb
   assert.equal(result.trades.filter((trade) => trade.status === "open").length, 2);
   assert.ok(result.trades.some((trade) => trade.symbol === "NEWUSDT"));
   assert.ok(result.skipped.some((item) => item.symbol === "LABUSDT" && item.reason === "duplicate-open-symbol"));
+});
+
+test("runPaperTradingCycle opens baseline and optimistic comparison trades independently", async () => {
+  const result = await runPaperTradingCycle({
+    ledger: [],
+    tokens: [token()],
+    fetchKlines: async () => [],
+    now: new Date("2026-06-22T01:00:00.000Z")
+  });
+
+  assert.equal(result.openedCount, 2);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").takeProfitPct, 8);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").takeProfitPct, 18);
+  assert.equal(result.accountsByGroup.baseline.openCount, 1);
+  assert.equal(result.accountsByGroup.optimistic.openCount, 1);
 });
 
 test("runPaperTradingCycle closes and reverses when the signal flips direction", async () => {
@@ -187,7 +251,8 @@ test("runPaperTradingCycle closes and reverses when the signal flips direction",
         close: 9.9
       })
     ],
-    now: new Date("2026-06-22T01:00:00.000Z")
+    now: new Date("2026-06-22T01:00:00.000Z"),
+    experimentGroups: ["baseline"]
   });
 
   assert.equal(result.closedCount, 1);
@@ -222,7 +287,8 @@ test("runPaperTradingCycle closes risk-off signals without opening a replacement
       })
     ],
     fetchKlines: async () => [],
-    now: new Date("2026-06-22T01:00:00.000Z")
+    now: new Date("2026-06-22T01:00:00.000Z"),
+    experimentGroups: ["baseline"]
   });
 
   assert.equal(result.closedCount, 1);
