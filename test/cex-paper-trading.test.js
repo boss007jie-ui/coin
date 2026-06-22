@@ -150,6 +150,8 @@ test("runPaperTradingCycle opens eligible trades and refuses duplicate open symb
 
   assert.equal(result.openedCount, 1);
   assert.equal(result.skippedCount, 1);
+  assert.equal(result.openedTrades.length, 1);
+  assert.equal(result.closedTrades.length, 0);
   assert.equal(result.trades.filter((trade) => trade.status === "open").length, 2);
   assert.ok(result.trades.some((trade) => trade.symbol === "NEWUSDT"));
   assert.ok(result.skipped.some((item) => item.symbol === "LABUSDT" && item.reason === "duplicate-open-symbol"));
