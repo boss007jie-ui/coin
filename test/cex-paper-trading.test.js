@@ -52,6 +52,7 @@ test("buildPaperTradeFromToken sizes a trade from total account risk, not fixed 
   assert.equal(decision.trade.marginUsdt, 83.33);
   assert.equal(decision.trade.stopLossPrice, 9.4);
   assert.equal(decision.trade.takeProfitPrice, 10.8);
+  assert.equal(decision.trade.marginMode, "isolated");
   assert.equal(decision.trade.stopLossMode, "trailing");
   assert.equal(decision.trade.experimentGroup, "baseline");
 });
