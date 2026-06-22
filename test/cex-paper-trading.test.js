@@ -217,6 +217,8 @@ test("runPaperTradingCycle opens baseline and optimistic comparison trades indep
   assert.equal(result.openedCount, 2);
   assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").takeProfitPct, 8);
   assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").takeProfitPct, 18);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").marginUsdt, 83.33);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").marginUsdt, 83.33);
   assert.equal(result.accountsByGroup.baseline.openCount, 1);
   assert.equal(result.accountsByGroup.optimistic.openCount, 1);
 });
