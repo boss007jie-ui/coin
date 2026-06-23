@@ -517,3 +517,71 @@ test("background monitor switches to defensive paper strategy when equity drops 
   assert.ok(sent.some((message) => message.includes("本金低于 500")));
   assert.equal(monitor.getStatus().lastPaperTrading.strategyProfile, "defensive-v1");
 });
+
+test("background monitor sends urgent review and pauses same-day entries after five percent paper loss", async () => {
+  const sent = [];
+  let paperState = {};
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-22T08:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 1, deepInspected: 1, attentionCount: 1, riskCount: 0 },
+      tokens: [{
+        symbol: "NEWUSDT",
+        lastPrice: 10,
+        actionBias: "watch-long",
+        shortTermBias: "bullish",
+        expectedMovePctRange: { lower: 8, upper: 18, label: "+8% ~ +18%" },
+        attentionScore: 88,
+        riskScore: 35,
+        phase: "acceleration",
+        signalReview: {
+          reviewLabel: "continuation",
+          decisionConfidence: "high"
+        }
+      }],
+      errors: []
+    }),
+    loadJournal: async () => [],
+    saveJournal: async () => {},
+    loadPaperTrades: async () => [
+      {
+        id: "TODAY-LOSS",
+        symbol: "LOSSUSDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        side: "long",
+        openedAt: "2026-06-22T00:00:00.000Z",
+        exitAt: "2026-06-22T03:00:00.000Z",
+        pnlUsdt: -51
+      }
+    ],
+    savePaperTrades: async () => {},
+    loadPaperState: async () => paperState,
+    savePaperState: async (nextState) => {
+      paperState = nextState;
+    },
+    fetchKlines: async () => [],
+    notifier: {
+      enabled: true,
+      sendMessage: async (message) => {
+        sent.push(message);
+        return { ok: true };
+      }
+    },
+    now: () => new Date("2026-06-22T08:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  await monitor.runOnce();
+  await monitor.runOnce();
+
+  const urgent = sent.filter((message) => message.includes("单日亏损超过 5%"));
+  assert.equal(urgent.length, 1);
+  assert.ok(urgent[0].includes("紧急复盘"));
+  assert.ok(urgent[0].includes("-51.00 USDT"));
+  assert.equal(paperState.lastDailyLossStopDateKey, "2026-06-22");
+  assert.equal(paperState.strategyProfile, "defensive-v1");
+  assert.equal(monitor.getStatus().lastPaperTrading.dailyLossGuard.halted, true);
+  assert.equal(monitor.getStatus().lastPaperTrading.openedCount, 0);
+});

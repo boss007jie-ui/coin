@@ -84,6 +84,8 @@ The paper monitor sends a daily Telegram summary after `22:00` Beijing time and 
 
 Closed paper trades also feed a setup-level review layer. The feedback groups results by experiment group, direction, action setup, signal label, and phase, then reports win rate, total PnL, average PnL, worst loss, loss streak, and review flags. Daily/weekly Telegram summaries include `需复盘` or `最差组合` lines once enough closed samples exist, and `/api/radar/paper-trades` returns the same feedback for the CEX radar detail panel. Future live-trading adapters must treat `needsReview` setups as blocked for automation until the rule is reviewed.
 
+After the first-day drawdown review, the standard paper profile is intentionally conservative: entries risk `0.5%`, max leverage is `3x`, max concurrent positions are `3`, and max margin usage is `30%`. Long `pullback-watch` entries are paused, and any setup marked `needsReview` is blocked from new paper entries. If same-day realized paper PnL falls below `-50 USDT` (`5%` of the `1000 USDT` simulation capital), new entries halt for the rest of that Beijing trading day and Telegram sends a `单日亏损超过 5%，紧急复盘` alert; existing open positions continue to be managed by trailing stops and signal exits.
+
 If the CEX radar shows `Binance futures ticker scan failed`, the local network is probably blocking `https://fapi.binance.com`. Start your local proxy and set these private `.env` values:
 
 ```bash

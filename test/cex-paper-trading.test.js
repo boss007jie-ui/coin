@@ -99,6 +99,20 @@ test("buildPaperTradeFromToken caps leverage at 5 and skips non-trade actions", 
   assert.equal(skipped.reason, "not-directional");
 });
 
+test("buildPaperTradeFromToken pauses long pullback-watch entries after first-day review", () => {
+  const skipped = buildPaperTradeFromToken(token({
+    phase: "pullback-watch",
+    actionBias: "watch-long"
+  }), {
+    equityUsdt: 1000,
+    usedMarginUsdt: 0,
+    openTrades: []
+  });
+
+  assert.equal(skipped.action, "skip");
+  assert.equal(skipped.reason, "pullback-long-paused");
+});
+
 test("evaluatePaperTradeWithCandles uses conservative stop loss when TP and SL touch in the same candle", () => {
   const trade = buildPaperTradeFromToken(token(), {
     equityUsdt: 1000,
@@ -222,10 +236,96 @@ test("runPaperTradingCycle opens baseline and optimistic comparison trades indep
   assert.equal(result.openedCount, 2);
   assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").takeProfitPct, 8);
   assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").takeProfitPct, 18);
-  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").marginUsdt, 83.33);
-  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").marginUsdt, 83.33);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").riskPct, 0.5);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").riskPct, 0.5);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "baseline").marginUsdt, 27.78);
+  assert.equal(result.openedTrades.find((trade) => trade.experimentGroup === "optimistic").marginUsdt, 27.78);
   assert.equal(result.accountsByGroup.baseline.openCount, 1);
   assert.equal(result.accountsByGroup.optimistic.openCount, 1);
+});
+
+test("runPaperTradingCycle blocks setup groups that need review", async () => {
+  const result = await runPaperTradingCycle({
+    ledger: [
+      {
+        id: "LOSS-1",
+        symbol: "OLD1USDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        side: "long",
+        actionBias: "watch-long",
+        reviewLabel: "continuation",
+        phase: "acceleration",
+        openedAt: "2026-06-21T00:00:00.000Z",
+        exitAt: "2026-06-21T01:00:00.000Z",
+        pnlUsdt: -8,
+        riskBudgetUsdt: 15
+      },
+      {
+        id: "LOSS-2",
+        symbol: "OLD2USDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        side: "long",
+        actionBias: "watch-long",
+        reviewLabel: "continuation",
+        phase: "acceleration",
+        openedAt: "2026-06-21T02:00:00.000Z",
+        exitAt: "2026-06-21T03:00:00.000Z",
+        pnlUsdt: -7,
+        riskBudgetUsdt: 15
+      },
+      {
+        id: "LOSS-3",
+        symbol: "OLD3USDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        side: "long",
+        actionBias: "watch-long",
+        reviewLabel: "continuation",
+        phase: "acceleration",
+        openedAt: "2026-06-21T04:00:00.000Z",
+        exitAt: "2026-06-21T05:00:00.000Z",
+        pnlUsdt: -6,
+        riskBudgetUsdt: 15
+      }
+    ],
+    tokens: [token({ symbol: "NEWUSDT" })],
+    fetchKlines: async () => [],
+    now: new Date("2026-06-22T01:00:00.000Z"),
+    experimentGroups: ["baseline"]
+  });
+
+  assert.equal(result.openedCount, 0);
+  assert.equal(result.feedback.needsReviewCount, 1);
+  assert.ok(result.skipped.some((item) => item.symbol === "NEWUSDT" && item.reason === "setup-needs-review"));
+});
+
+test("runPaperTradingCycle halts new entries after daily realized loss exceeds five percent", async () => {
+  const result = await runPaperTradingCycle({
+    ledger: [
+      {
+        id: "TODAY-LOSS",
+        symbol: "LOSSUSDT",
+        status: "closed",
+        experimentGroup: "baseline",
+        side: "long",
+        openedAt: "2026-06-22T00:00:00.000Z",
+        exitAt: "2026-06-22T03:00:00.000Z",
+        pnlUsdt: -51
+      }
+    ],
+    tokens: [token({ symbol: "NEWUSDT" })],
+    fetchKlines: async () => [],
+    now: new Date("2026-06-22T04:00:00.000Z"),
+    experimentGroups: ["baseline"]
+  });
+
+  assert.equal(result.openedCount, 0);
+  assert.equal(result.dailyLossGuard.halted, true);
+  assert.equal(result.dailyLossGuard.pnlUsdt, -51);
+  assert.equal(result.dailyLossGuard.maxLossUsdt, 50);
+  assert.ok(result.skipped.some((item) => item.symbol === "NEWUSDT" && item.reason === "daily-loss-limit"));
 });
 
 test("runPaperTradingCycle closes and reverses when the signal flips direction", async () => {
