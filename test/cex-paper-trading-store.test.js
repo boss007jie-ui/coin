@@ -7,6 +7,7 @@ const path = require("path");
 const {
   loadCexPaperTrades,
   saveCexPaperTrades,
+  archiveCexPaperTrades,
   loadCexPaperState,
   saveCexPaperState
 } = require("../lib/cex-paper-trading-store");
@@ -32,6 +33,30 @@ test("saves and loads paper trades", async () => {
 
   await saveCexPaperTrades(filePath, trades);
   assert.deepEqual(await loadCexPaperTrades(filePath), trades);
+});
+
+test("archives paper trades with reset metadata", async () => {
+  const filePath = await tempLedgerPath();
+  const trades = [{
+    id: "OLD-LOSS",
+    symbol: "OLDUSDT",
+    status: "closed",
+    pnlUsdt: -200
+  }];
+
+  const archive = await archiveCexPaperTrades(filePath, trades, {
+    reason: "strategy-version-change",
+    previousStrategyVersion: "old-version",
+    nextStrategyVersion: "new-version"
+  });
+
+  assert.equal(archive.count, 1);
+  assert.match(archive.filePath, /cex-paper-trades\.json\.backup-\d+$/);
+  const payload = JSON.parse(await fs.readFile(archive.filePath, "utf8"));
+  assert.deepEqual(payload.trades, trades);
+  assert.equal(payload.metadata.reason, "strategy-version-change");
+  assert.equal(payload.metadata.previousStrategyVersion, "old-version");
+  assert.equal(payload.metadata.nextStrategyVersion, "new-version");
 });
 
 test("malformed paper trades file throws local data error without overwriting", async () => {

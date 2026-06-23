@@ -4,7 +4,7 @@ const fsSync = require("fs");
 const fs = require("fs/promises");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
-const { createCexBackgroundMonitor } = require("./lib/cex-background-monitor");
+const { DEFAULT_PAPER_STRATEGY_VERSION, createCexBackgroundMonitor } = require("./lib/cex-background-monitor");
 const { createCexRadarScanner } = require("./lib/cex-radar-service");
 const {
   reviewJournalEntries,
@@ -17,6 +17,7 @@ const {
 const {
   loadCexPaperTrades,
   saveCexPaperTrades,
+  archiveCexPaperTrades,
   loadCexPaperState,
   saveCexPaperState
 } = require("./lib/cex-paper-trading-store");
@@ -2314,6 +2315,7 @@ async function startCexBackgroundMonitorFromEnv() {
     saveJournal: (entries) => saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, entries),
     loadPaperTrades: paperTradingEnabled ? () => loadCexPaperTrades(CEX_PAPER_TRADES_FILE) : undefined,
     savePaperTrades: paperTradingEnabled ? (trades) => saveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades) : undefined,
+    archivePaperTrades: paperTradingEnabled ? (trades, metadata) => archiveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades, metadata) : undefined,
     loadPaperState: paperTradingEnabled ? () => loadCexPaperState(CEX_PAPER_STATE_FILE) : undefined,
     savePaperState: paperTradingEnabled ? (state) => saveCexPaperState(CEX_PAPER_STATE_FILE, state) : undefined,
     fetchKlines: fetchPaperKlines,
@@ -2321,7 +2323,8 @@ async function startCexBackgroundMonitorFromEnv() {
     intervalMinutes: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES, 5),
     deepInspectLimit: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_DEEP_LIMIT, 20),
     pinnedSymbols: parseCsv(env.CEX_BACKGROUND_MONITOR_PINNED_SYMBOLS),
-    alertCooldownMs: parsePositiveNumber(env.CEX_ALERT_COOLDOWN_MINUTES, 60) * 60 * 1000
+    alertCooldownMs: parsePositiveNumber(env.CEX_ALERT_COOLDOWN_MINUTES, 60) * 60 * 1000,
+    paperStrategyVersion: env.CEX_PAPER_STRATEGY_VERSION || DEFAULT_PAPER_STRATEGY_VERSION
   });
   cexBackgroundMonitor.start();
   console.log("CEX background monitor started");

@@ -156,6 +156,77 @@ test("background monitor runs paper trading cycle when dependencies are configur
   assert.ok(sent.some((message) => message.includes("证据 6/3")));
 });
 
+test("background monitor resets paper account to 1000 USDT when strategy version changes", async () => {
+  let paperTrades = [{
+    id: "OLD-LOSS",
+    symbol: "OLDUSDT",
+    status: "closed",
+    experimentGroup: "baseline",
+    side: "long",
+    openedAt: "2026-06-22T00:00:00.000Z",
+    exitAt: "2026-06-22T01:00:00.000Z",
+    pnlUsdt: -200
+  }];
+  let paperState = {
+    strategyVersion: "old-version",
+    strategyProfile: "defensive-v1",
+    lastDailyLossStopDateKey: "2026-06-22"
+  };
+  const archived = [];
+  const sent = [];
+  const monitor = createCexBackgroundMonitor({
+    scanCexRadar: async () => ({
+      updatedAt: "2026-06-22T08:00:00.000Z",
+      summary: { scannedFutures: 10, withoutBinanceSpot: 2, deepInspected: 1, attentionCount: 1, riskCount: 0 },
+      tokens: [token()],
+      errors: []
+    }),
+    loadJournal: async () => [],
+    saveJournal: async () => {},
+    loadPaperTrades: async () => paperTrades,
+    savePaperTrades: async (trades) => {
+      paperTrades = trades;
+    },
+    loadPaperState: async () => paperState,
+    savePaperState: async (nextState) => {
+      paperState = nextState;
+    },
+    archivePaperTrades: async (trades, metadata) => {
+      archived.push({ trades, metadata });
+      return { filePath: "/tmp/archive.json", count: trades.length };
+    },
+    fetchKlines: async () => [],
+    notifier: {
+      enabled: true,
+      sendMessage: async (message) => {
+        sent.push(message);
+        return { ok: true };
+      }
+    },
+    paperStrategyVersion: "test-version-2",
+    now: () => new Date("2026-06-22T08:00:00.000Z"),
+    setTimer: () => null,
+    clearTimer: () => {}
+  });
+
+  const result = await monitor.runOnce();
+
+  assert.equal(result.ok, true);
+  assert.equal(result.paperTrading.openedCount, 2);
+  assert.equal(result.paperTrading.realizedEquityUsdt, 1000);
+  assert.equal(result.paperTrading.strategyProfile, "standard");
+  assert.equal(result.paperTrading.strategyVersion, "test-version-2");
+  assert.deepEqual(paperTrades.map((trade) => trade.symbol), ["LABUSDT", "LABUSDT"]);
+  assert.equal(archived.length, 1);
+  assert.equal(archived[0].trades[0].id, "OLD-LOSS");
+  assert.equal(archived[0].metadata.reason, "strategy-version-change");
+  assert.equal(paperState.strategyVersion, "test-version-2");
+  assert.equal(paperState.strategyProfile, "standard");
+  assert.equal(paperState.lastStrategyResetPreviousVersion, "old-version");
+  assert.equal(paperState.lastDailyLossStopDateKey, undefined);
+  assert.ok(sent.some((message) => message.includes("策略版本变更")));
+});
+
 test("background monitor keeps scan successful when Telegram alert fails", async () => {
   const saved = [];
   const monitor = createCexBackgroundMonitor({
