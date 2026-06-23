@@ -14,6 +14,14 @@ function token(overrides = {}) {
     attentionScore: 88,
     riskScore: 35,
     phase: "acceleration",
+    hasBinanceSpot: false,
+    externalAnchors: [{ exchange: "gateio", symbol: "LAB_USDT", price: 10, weight: 0.5 }],
+    anchorDispersionPct: 0.4,
+    futuresToAnchorVolumeRatio: 8.5,
+    fundingRate: 0.00005,
+    markIndexPremiumPct: 0.08,
+    quoteVolume24h: 12_000_000,
+    tags: ["无币安现货", "外部锚同步", "合约量主导", "Funding正常"],
     shortTermBias: "bullish",
     expectedMovePctRange: { lower: 8, upper: 18, label: "+8% ~ +18%" },
     expectationConfidence: "high",
@@ -59,6 +67,57 @@ test("buildPaperTradeFromToken sizes a trade from total account risk, not fixed 
   assert.equal(decision.trade.shortTermBias, "bullish");
   assert.equal(decision.trade.reviewLabel, "continuation");
   assert.equal(decision.trade.phase, "acceleration");
+  assert.ok(decision.trade.entryEvidence.angleCount >= 3);
+  assert.deepEqual(
+    decision.trade.entryEvidence.confirmations.map((item) => item.id).sort(),
+    [
+      "derivatives-participation",
+      "directional-signal",
+      "external-anchor-sync",
+      "funding-healthy",
+      "listing-structure",
+      "risk-contained"
+    ].sort()
+  );
+});
+
+test("buildPaperTradeFromToken skips entries when the setup only has a directional label", () => {
+  const decision = buildPaperTradeFromToken(token({
+    hasBinanceSpot: true,
+    externalAnchors: [],
+    anchorDispersionPct: null,
+    futuresToAnchorVolumeRatio: null,
+    fundingRate: null,
+    markIndexPremiumPct: null,
+    quoteVolume24h: 900_000,
+    tags: []
+  }), {
+    equityUsdt: 1000,
+    usedMarginUsdt: 0,
+    openTrades: []
+  });
+
+  assert.equal(decision.action, "skip");
+  assert.equal(decision.reason, "insufficient-entry-evidence");
+  assert.equal(decision.entryEvidence.minRequiredConfirmations, 3);
+  assert.ok(decision.entryEvidence.angleCount < 3);
+});
+
+test("buildPaperTradeFromToken blocks long entries when derivatives are crowded", () => {
+  const decision = buildPaperTradeFromToken(token({
+    fundingRate: 0.0013,
+    markIndexPremiumPct: 0.45,
+    riskScore: 38,
+    tags: ["无币安现货", "外部锚同步", "合约量主导", "Funding异常"]
+  }), {
+    equityUsdt: 1000,
+    usedMarginUsdt: 0,
+    openTrades: []
+  });
+
+  assert.equal(decision.action, "skip");
+  assert.equal(decision.reason, "entry-veto");
+  assert.ok(decision.entryEvidence.vetoes.some((item) => item.id === "crowded-long"));
 });
 
 test("buildPaperTradeFromToken can use optimistic take profit for comparison group", () => {

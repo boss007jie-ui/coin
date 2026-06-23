@@ -14,6 +14,14 @@ function token(overrides = {}) {
     attentionScore: 88,
     riskScore: 35,
     phase: "acceleration",
+    hasBinanceSpot: false,
+    externalAnchors: [{ exchange: "gateio", symbol: "LAB_USDT", price: 10, weight: 0.5 }],
+    anchorDispersionPct: 0.4,
+    futuresToAnchorVolumeRatio: 8.5,
+    fundingRate: 0.00005,
+    markIndexPremiumPct: 0.08,
+    quoteVolume24h: 12_000_000,
+    tags: ["无币安现货", "外部锚同步", "合约量主导", "Funding正常"],
     shortTermBias: "bullish",
     expectedMovePctRange: { lower: 8, upper: 18, label: "+8% ~ +18%" },
     expectationConfidence: "high",
@@ -145,6 +153,7 @@ test("background monitor runs paper trading cycle when dependencies are configur
   assert.equal(monitor.getStatus().lastPaperTrading.groups.baseline.openCount, 1);
   assert.equal(monitor.getStatus().lastPaperTrading.groups.optimistic.openCount, 1);
   assert.ok(sent.some((message) => message.includes("[CEX 模拟交易]")));
+  assert.ok(sent.some((message) => message.includes("证据 6/3")));
 });
 
 test("background monitor keeps scan successful when Telegram alert fails", async () => {

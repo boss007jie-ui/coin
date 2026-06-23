@@ -686,7 +686,18 @@ function formatPaperTradeLine(trade) {
   const side = trade.side === "short" ? "空" : "多";
   const status = trade.status === "open" ? "持仓" : (trade.exitReason || "平仓");
   const pnl = trade.status === "closed" ? ` / ${formatSignedUsdt(trade.pnlUsdt)}` : "";
-  return `${group} ${side} ${status}${pnl}`;
+  const evidence = formatEntryEvidenceLine(trade.entryEvidence);
+  return `${group} ${side} ${status}${pnl}${evidence ? ` / ${evidence}` : ""}`;
+}
+
+function formatEntryEvidenceLine(entryEvidence) {
+  const evidence = entryEvidence && typeof entryEvidence === "object" ? entryEvidence : {};
+  const confirmations = Array.isArray(evidence.confirmations) ? evidence.confirmations : [];
+  if (!confirmations.length) return "";
+  const angleCount = toFiniteNumber(evidence.angleCount) || confirmations.length;
+  const minRequired = toFiniteNumber(evidence.minRequiredConfirmations) || 0;
+  const labels = confirmations.slice(0, 2).map((item) => item.label).filter(Boolean);
+  return `证据 ${angleCount}/${minRequired}: ${labels.join(" / ")}`;
 }
 
 function journalHistory(symbol) {
