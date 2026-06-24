@@ -299,3 +299,26 @@ test("broad futures scan failure surfaces source-specific upstream error", async
     }
   );
 });
+
+test("non-array futures scan response surfaces upstream response message", async () => {
+  const scanner = createCexRadarScanner({
+    fetchJson: async () => ({
+      code: 0,
+      msg: "Service unavailable from a restricted location"
+    }),
+    getSpotTickerMap: async () => new Map(),
+    now: () => new Date("2026-06-19T04:00:00.000Z")
+  });
+
+  await assert.rejects(
+    scanner.scan({ force: true }),
+    (error) => {
+      assert.equal(error.message, "Binance futures ticker scan failed");
+      assert.equal(error.statusCode, 502);
+      assert.equal(error.details.source, "binance-futures");
+      assert.equal(error.details.endpoint, "/fapi/v1/ticker/24hr");
+      assert.match(error.details.cause, /restricted location/);
+      return true;
+    }
+  );
+});

@@ -1,11 +1,33 @@
 const http = require("http");
 const path = require("path");
+const fsSync = require("fs");
 const fs = require("fs/promises");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
+const { DEFAULT_PAPER_STRATEGY_VERSION, createCexBackgroundMonitor } = require("./lib/cex-background-monitor");
 const { createCexRadarScanner } = require("./lib/cex-radar-service");
+const {
+  reviewJournalEntries,
+  upsertJournalEntries
+} = require("./lib/cex-signal-journal");
+const {
+  loadCexSignalJournal,
+  saveCexSignalJournal
+} = require("./lib/cex-signal-journal-store");
+const {
+  loadCexPaperTrades,
+  saveCexPaperTrades,
+  archiveCexPaperTrades,
+  loadCexPaperState,
+  saveCexPaperState
+} = require("./lib/cex-paper-trading-store");
+const { buildPaperFeedbackSummary } = require("./lib/cex-paper-feedback");
+const { createFuturesKlineFetcher } = require("./lib/futures-kline-provider");
+const { fetchTextViaCurlProxy, resolveProxyUrl } = require("./lib/http-proxy-fetch");
+const { createTelegramNotifier } = require("./lib/telegram-notifier");
 
 const ROOT_DIR = __dirname;
+loadLocalEnvIntoProcess(ROOT_DIR);
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const PORT = Number(process.env.PORT || 5173);
 const CACHE_TTL_MS = 30000;
@@ -24,8 +46,12 @@ const mimeTypes = {
 const quoteCache = new Map();
 let binanceTickerCache = null;
 let onchainBalanceCache = null;
+let cexBackgroundMonitor = null;
 const ONCHAIN_CACHE_TTL_MS = 60000;
 const WALLETS_FILE = path.join(ROOT_DIR, "data", "wallets.json");
+const CEX_SIGNAL_JOURNAL_FILE = process.env.CEX_SIGNAL_JOURNAL_FILE || path.join(ROOT_DIR, "data", "cex-signal-journal.json");
+const CEX_PAPER_TRADES_FILE = process.env.CEX_PAPER_TRADES_FILE || path.join(ROOT_DIR, "data", "cex-paper-trades.json");
+const CEX_PAPER_STATE_FILE = process.env.CEX_PAPER_STATE_FILE || path.join(ROOT_DIR, "data", "cex-paper-state.json");
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -136,6 +162,54 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, results);
     }
 
+    if (req.method === "GET" && requestUrl.pathname === "/api/radar/cex-journal") {
+      const symbol = String(requestUrl.searchParams.get("symbol") || "").trim().toUpperCase();
+      const entries = await loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE);
+      const filtered = symbol ? entries.filter((entry) => String(entry.symbol || "").toUpperCase() === symbol) : entries;
+      filtered.sort((a, b) => (Date.parse(b.observedAt || "") || 0) - (Date.parse(a.observedAt || "") || 0));
+      return sendJson(res, { entries: filtered });
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/radar/cex-journal/capture") {
+      const body = await readJson(req);
+      const tokens = Array.isArray(body.tokens)
+        ? body.tokens
+        : (await fetchCexRadarScan(false, body.deepInspectLimit)).tokens;
+      const entries = await loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE);
+      const result = upsertJournalEntries(entries, tokens, {
+        now: new Date(),
+        pinnedSymbols: Array.isArray(body.pinnedSymbols) ? body.pinnedSymbols : []
+      });
+      await saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, result.entries);
+      return sendJson(res, { ok: true, ...result });
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/radar/cex-journal/review") {
+      const body = await readJson(req);
+      const tokens = Array.isArray(body.tokens)
+        ? body.tokens
+        : (await fetchCexRadarScan(false, body.deepInspectLimit)).tokens;
+      const priceBySymbol = new Map(
+        tokens
+          .map((token) => [String(token.symbol || "").toUpperCase(), Number(token.lastPrice)])
+          .filter(([, price]) => Number.isFinite(price))
+      );
+      const entries = await loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE);
+      const result = reviewJournalEntries(entries, priceBySymbol, new Date());
+      await saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, result.entries);
+      return sendJson(res, { ok: true, ...result });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/radar/paper-trades") {
+      const trades = await loadCexPaperTrades(CEX_PAPER_TRADES_FILE);
+      trades.sort((a, b) => (Date.parse(b.openedAt || b.createdAt || "") || 0) - (Date.parse(a.openedAt || a.createdAt || "") || 0));
+      return sendJson(res, { trades, feedback: buildPaperFeedbackSummary(trades) });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/radar/cex-monitor/status") {
+      return sendJson(res, { status: getCexBackgroundMonitorStatus() });
+    }
+
     if (req.method === "GET" && requestUrl.pathname === "/api/radar/config") {
       const config = await loadRadarConfig();
       return sendJson(res, config);
@@ -156,6 +230,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Asset Portfolio Hub is running at http://localhost:${PORT}`);
+  startCexBackgroundMonitorFromEnv().catch((error) => {
+    console.error("CEX background monitor failed to start:", error);
+  });
 });
 
 async function serveStatic(urlPath, res) {
@@ -380,6 +457,19 @@ async function readLocalEnv() {
     return parseDotEnv(text);
   } catch {
     return {};
+  }
+}
+
+function loadLocalEnvIntoProcess(rootDir) {
+  try {
+    const values = parseDotEnv(fsSync.readFileSync(path.join(rootDir, ".env"), "utf8"));
+    for (const [key, value] of Object.entries(values)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Missing local .env is expected for tests and clean checkouts.
   }
 }
 
@@ -880,6 +970,18 @@ async function fetchJsonWithFallback(url, timeoutMs, options = {}) {
     }
     return await response.json();
   } catch (nodeError) {
+    const env = { ...(await readLocalEnv()), ...process.env };
+    const proxyUrl = resolveProxyUrl(url, env);
+
+    if (proxyUrl && process.platform !== "win32") {
+      try {
+        const text = await fetchTextViaCurlProxy(url, timeoutMs + 8000, options.headers || {}, proxyUrl);
+        return JSON.parse(text);
+      } catch (curlError) {
+        throw new Error(`${nodeError.message}; curl proxy fallback failed: ${curlError.message}`);
+      }
+    }
+
     if (process.platform !== "win32") {
       throw nodeError;
     }
@@ -2170,6 +2272,79 @@ function getCexRadarScanner() {
 
 async function fetchCexRadarScan(force = false, deepInspectLimit = undefined) {
   return getCexRadarScanner().scan({ force, deepInspectLimit });
+}
+
+function getCexBackgroundMonitorStatus() {
+  if (!cexBackgroundMonitor) {
+    return {
+      running: false,
+      enabled: false,
+      lastRunAt: null,
+      nextRunAt: null,
+      lastError: null,
+      lastSummary: null,
+      lastAlertCount: 0,
+      lastPaperTrading: null,
+      lastPaperTradingError: null,
+      runCount: 0
+    };
+  }
+  return {
+    enabled: true,
+    ...cexBackgroundMonitor.getStatus()
+  };
+}
+
+async function startCexBackgroundMonitorFromEnv() {
+  const env = { ...(await readLocalEnv()), ...process.env };
+  if (!parseBoolean(env.CEX_BACKGROUND_MONITOR_ENABLED, false)) {
+    return;
+  }
+
+  const paperTradingEnabled = parseBoolean(env.CEX_PAPER_TRADING_ENABLED, true);
+  const fetchPaperKlines = paperTradingEnabled
+    ? createFuturesKlineFetcher({
+      provider: env.CEX_PAPER_KLINES_PROVIDER || "binance",
+      fetchJson: fetchJsonWithFallback
+    })
+    : undefined;
+
+  cexBackgroundMonitor = createCexBackgroundMonitor({
+    scanCexRadar: ({ force, deepInspectLimit }) => fetchCexRadarScan(force, deepInspectLimit),
+    loadJournal: () => loadCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE),
+    saveJournal: (entries) => saveCexSignalJournal(CEX_SIGNAL_JOURNAL_FILE, entries),
+    loadPaperTrades: paperTradingEnabled ? () => loadCexPaperTrades(CEX_PAPER_TRADES_FILE) : undefined,
+    savePaperTrades: paperTradingEnabled ? (trades) => saveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades) : undefined,
+    archivePaperTrades: paperTradingEnabled ? (trades, metadata) => archiveCexPaperTrades(CEX_PAPER_TRADES_FILE, trades, metadata) : undefined,
+    loadPaperState: paperTradingEnabled ? () => loadCexPaperState(CEX_PAPER_STATE_FILE) : undefined,
+    savePaperState: paperTradingEnabled ? (state) => saveCexPaperState(CEX_PAPER_STATE_FILE, state) : undefined,
+    fetchKlines: fetchPaperKlines,
+    notifier: createTelegramNotifier({ env }),
+    intervalMinutes: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_INTERVAL_MINUTES, 5),
+    deepInspectLimit: parsePositiveNumber(env.CEX_BACKGROUND_MONITOR_DEEP_LIMIT, 20),
+    pinnedSymbols: parseCsv(env.CEX_BACKGROUND_MONITOR_PINNED_SYMBOLS),
+    alertCooldownMs: parsePositiveNumber(env.CEX_ALERT_COOLDOWN_MINUTES, 60) * 60 * 1000,
+    paperStrategyVersion: env.CEX_PAPER_STRATEGY_VERSION || DEFAULT_PAPER_STRATEGY_VERSION
+  });
+  cexBackgroundMonitor.start();
+  console.log("CEX background monitor started");
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function parsePositiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function parseCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean);
 }
 
 async function fetchRadarScan(force = false) {
